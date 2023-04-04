@@ -30,7 +30,7 @@
 int
 main(int argc, char **argv)
 {
-    Sys_SetWorkDir("/dev_hdd0/game/QUAKE2");
+	Sys_SetWorkDir("/dev_hdd0/game/QUAKE2_00");
 
 	// Call the initialization code.
 	// Never returns.

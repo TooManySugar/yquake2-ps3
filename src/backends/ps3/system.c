@@ -253,7 +253,7 @@ char*
 Sys_GetHomeDir(void)
 {
 	static char homedir[MAX_OSPATH];
-	static const char* home = "/dev_hdd0/game/QUAKE2";
+	static const char* home = "/dev_hdd0/game/QUAKE2_00";
 
 	snprintf(homedir, sizeof(homedir), "%s/%s/", home, cfgdir);
 	Sys_Mkdir(homedir);
@@ -293,7 +293,7 @@ Sys_RemoveDir(const char *path)
 {
 	if (sysLv2FsRmdir(path) != 0) 
 	{
-		printf("Sys_RemoveDir: can't remove dir: '%s'\n", path);
+		Com_Printf("Sys_RemoveDir: can't remove dir: '%s'\n", path);
 	}
 }
 
@@ -435,7 +435,7 @@ static char findpattern[MAX_OSPATH];
 static s32 fdir = -1;
 
 
-// /dev_hdd0/game/QUAKE2/USRDIR/baseq2/*.pak - should open
+// /dev_hdd0/game/QUAKE2_00/USRDIR/baseq2/*.pak - should open
 // /dev_hdd0/game/baseq2/*.pak - should not open (return NULL)
 char *Sys_FindFirst(char *path, unsigned musthave, unsigned canthave)
 {
@@ -475,8 +475,8 @@ char *Sys_FindFirst(char *path, unsigned musthave, unsigned canthave)
 		strcpy(findpattern, "*");
 	}
 
-	// /dev_hdd0/game/QUAKE2/USRDIR/baseq2/ - fdir > 0
-	// /dev_hdd0/game/QUAKE2/USRDIR/baseq2/not_existing*msa!%#@ - fdir < 0
+	// /dev_hdd0/game/QUAKE2_00/USRDIR/baseq2/ - fdir > 0
+	// /dev_hdd0/game/QUAKE2_00/USRDIR/baseq2/not_existing*msa!%#@ - fdir < 0
 	sysLv2FsOpenDir(findbase, &fdir);
 	if (fdir < 0)
 	{

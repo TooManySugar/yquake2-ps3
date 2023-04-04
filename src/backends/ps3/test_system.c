@@ -17,7 +17,7 @@ int TestSys()
 
 	printf("1 Sys_GetWorkDir: '%s'\n", buf);
 
-	qboolean ret = Sys_Realpath("./QUAKE2PORT", &buf[0], 1024);
+	qboolean ret = Sys_Realpath("./QUAKE2_00", &buf[0], 1024);
 
 	printf("Sys_Realpath(.) == %d : '%s'\n", ret, buf);
 	
@@ -50,7 +50,7 @@ int TestSys()
 
 int TestFindSys()
 {
-	char* ret = Sys_FindFirst("/dev_hdd0/game/QUAKE2/USRDIR/baseq2/*.pak", 0, 0);
+	char* ret = Sys_FindFirst("/dev_hdd0/game/QUAKE2_00/USRDIR/baseq2/*.pak", 0, 0);
 	if (ret == NULL)
 	{
 		printf("0 Sys_FindFirst returned NULL\n");
@@ -60,7 +60,7 @@ int TestFindSys()
 		printf("0 Sys_FindFirst returned '%s'\n", ret);
 	}
 
-	ret = Sys_FindFirst("/dev_hdd0/game/QUAKE2/USRDIR/baseq2/*.pak", 0, 0);
+	ret = Sys_FindFirst("/dev_hdd0/game/QUAKE2_00/USRDIR/baseq2/*.pak", 0, 0);
 	if (ret == NULL)
 	{
 		printf("1 Sys_FindFirst returned NULL\n");
