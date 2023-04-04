@@ -33,9 +33,25 @@
 
 #include "../../../common/header/common.h"
 
+#if defined(TRACK_HUNK)
+#include "../../../client/refresh/gl3/header/DG_dynarr.h"
+
+typedef struct {
+	byte* ptr;
+	int maxsize;
+} hunk_t;
+
+DA_TYPEDEF(hunk_t, pointers_vec_t);
+static pointers_vec_t hunks = {0};
+#endif
+
 byte *membase;
 int maxhunksize;
 int curhunksize;
+
+#if defined(TRACK_HUNK)
+static int mem_taken = 0;
+#endif
 
 void *Hunk_Begin (int maxsize)
 {
@@ -51,6 +67,14 @@ void *Hunk_Begin (int maxsize)
 	else
     {
 		memset (membase, 0, maxhunksize);
+
+#if defined(TRACK_HUNK)
+		mem_taken += maxhunksize;
+		hunk_t new_hunk;
+		new_hunk.ptr = membase;
+		new_hunk.maxsize = maxhunksize;
+		da_push(hunks, new_hunk);
+#endif
     }
 
 	return membase;
@@ -78,7 +102,11 @@ static void loose_counter()
 {
     static int loose = 0;
     loose += (maxhunksize - curhunksize);
-    printf("inc: %d bytes loose: %d bytes\n", maxhunksize - curhunksize, loose);
+    Com_Printf("inc: %d bytes loose: %d bytes\n", maxhunksize - curhunksize, loose);
+
+#if defined(TRACK_HUNK)
+	Com_Printf("memory used by hunk allocations: %d bytes\n", mem_taken);
+#endif
 }
 
 int Hunk_End (void)
@@ -117,6 +145,22 @@ void Hunk_Free (void *base)
 
 	if (base)
     {
+#if defined(TRACK_HUNK)
+		int i;
+		for (i = 0; i < da_count(hunks); ++i)
+			if ((hunks.p[i]).ptr == base)
+				break;
+
+		if (i == da_count(hunks))
+		{
+			Com_Printf("Hunk error: can't find freeing hunk");
+		}
+		else
+		{
+			mem_taken -= (hunks.p[i]).maxsize;
+			da_deleten(hunks, i, 1);
+		}
+#endif
 		free(base);
     }
 }
