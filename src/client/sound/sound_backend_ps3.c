@@ -826,7 +826,7 @@ SB_AddLoopSounds(void)
 void
 SB_ClearBuffer(void)
 {
-	if (sound_started != SS_NOT)
+	if (sound_started == SS_NOT)
 	{
 		return;
 	}
@@ -1400,7 +1400,7 @@ SB_PS3_audioThread(void * arg)
 		// 20 sec should be more than enough for that
 		// Otherwise assume something is broke and close 
 		// audio for safety
-		if (sysEventQueueReceive(snd_queue, &event, 20*1000) != 0)
+		if (sysEventQueueReceive(snd_queue, &event, 20*1000000) != 0)
 		{
 			printf("sysEventQueueReceive reached timeout. Closing audio.\n");
 			snd_inited = 0;
