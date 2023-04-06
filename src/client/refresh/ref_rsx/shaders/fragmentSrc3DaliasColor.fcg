@@ -1,0 +1,19 @@
+void main
+(
+    float4 inColor: TEXCOORD3,
+
+    uniform float alpha,
+    uniform float gamma,
+	// uniform float intensity,
+
+    out float4 oColor
+)
+{
+    float4 texel = inColor;
+
+    // apply gamma correction and intensity
+    // texel.rgb *= intensity; // TODO: color-only rendering probably shouldn't use intensity?
+    texel.a *= alpha; // is alpha even used here?
+    oColor.rgb = pow(texel.rgb, float3(gamma));
+    oColor.a = texel.a; // I think alpha shouldn't be modified by gamma and intensity
+}

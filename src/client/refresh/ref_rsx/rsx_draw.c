@@ -31,17 +31,75 @@ unsigned d_8to24table[256];
 
 gl3image_t *draw_chars;
 
-static GLuint vbo2D = 0, vao2D = 0, vao2Dcolor = 0; // vao2D is for textured rendering, vao2Dcolor for color-only
+#define AMOUNT_OF_2D_BUFFERS 4096
+static void *vb2D[AMOUNT_OF_2D_BUFFERS] = { NULL };
+uint32_t used_vb2Ds = 0;
+
+static void
+
+R_RSX_Draw_shutdown2DVertexBuffers()
+{
+	for (uint32_t i = 0; i < AMOUNT_OF_2D_BUFFERS; ++i)
+	{
+		if (vb2D[i] == NULL) { continue; }
+
+		rsxFree_with_log(vb2D[i]);
+		vb2D[i] = NULL;
+	}
+	used_vb2Ds = 0;
+}
+
+static qboolean
+R_RSX_Draw_init2DVertexBuffers()
+{
+	void* ptr;
+	for (uint32_t i = 0; i < AMOUNT_OF_2D_BUFFERS; ++i)
+	{
+		ptr = rsxMemalign_with_log(128, 128);
+
+		if (ptr == NULL)
+		{
+			R_RSX_Draw_shutdown2DVertexBuffers();
+			return false;
+		}
+		vb2D[i] = ptr;
+	}
+	used_vb2Ds = 0;
+	return true;
+}
+
+void *
+R_RSX_Draw_next2DVertexBuffer()
+{
+	void *res = vb2D[used_vb2Ds];
+	/* Not sure hot to make it more smart:
+	   reseting it at frame end/begin causes RSX to not
+	   finish drawing at a time causing flickering on
+	   rendered images.
+	   Current solution working with a hope what it
+	   finished drawing previously used vb2D at the time
+	   when lap occurs. */
+	used_vb2Ds = (used_vb2Ds + 1) % AMOUNT_OF_2D_BUFFERS;
+	return res;
+}
 
 void
-GL3_Draw_InitLocal(void)
+R_RSX_Draw_InitLocal(void)
 {
 	/* load console characters */
-	draw_chars = rsx_find_image("pics/conchars.pcx", it_pic);
+	draw_chars = R_RSX_Image_FindImage("pics/conchars.pcx", it_pic);
 	if (!draw_chars)
 	{
 		ri.Sys_Error(ERR_FATAL, "Couldn't load pics/conchars.pcx");
 	}
+	R_Printf(PRINT_ALL, "Console characters loaded\n");
+
+	if (!R_RSX_Draw_init2DVertexBuffers())
+	{
+		ri.Sys_Error(ERR_FATAL, "Couldn't allocate memory for 2D vertex buffers");
+	}
+	R_Printf(PRINT_ALL, "Allocated %d 2D Vertex buffers\n", AMOUNT_OF_2D_BUFFERS);
+	
 
 	// set up attribute layout for 2D textured rendering
 	// glGenVertexArrays(1, &vao2D);
@@ -76,8 +134,9 @@ GL3_Draw_InitLocal(void)
 }
 
 void
-GL3_Draw_ShutdownLocal(void)
+R_RSX_Draw_ShutdownLocal(void)
 {
+	R_RSX_Draw_shutdown2DVertexBuffers();
 	// glDeleteBuffers(1, &vbo2D);
 	// vbo2D = 0;
 	// glDeleteVertexArrays(1, &vao2D);
@@ -88,26 +147,43 @@ GL3_Draw_ShutdownLocal(void)
 
 // bind the texture before calling this
 static void
-drawTexturedRectangle(float x, float y, float w, float h,
-                      float sl, float tl, float sh, float th)
+R_RSX_Draw_texturedRectangle(float x, float y, float w, float h,
+                             float sl, float tl, float sh, float th)
 {
-	// /*
-	//  *  x,y+h      x+w,y+h
-	//  * sl,th--------sh,th
-	//  *  |             |
-	//  *  |             |
-	//  *  |             |
-	//  * sl,tl--------sh,tl
-	//  *  x,y        x+w,y
-	//  */
+	u32 offset;
+	float fx,fy,fw,fh;
 
-	// GLfloat vBuf[16] = {
-	// //  X,   Y,   S,  T
-	// 	x,   y+h, sl, th,
-	// 	x,   y,   sl, tl,
-	// 	x+w, y+h, sh, th,
-	// 	x+w, y,   sh, tl
-	// };
+	/*
+	 *  x,y+h      x+w,y+h
+	 * sl,th--------sh,th
+	 *  |             |
+	 *  |             |
+	 *  |             |
+	 * sl,tl--------sh,tl
+	 *  x,y        x+w,y
+	 */
+
+	// conversion from Quake2 cords to RSX's render cords
+	fx = x / (vid.width / 2) - 1;
+	fy = -(y / (vid.height / 2) - 1);
+	fw = ((x+w) / (vid.width / 2)) - 1;
+	fh = -(((y+h) / (vid.height / 2)) - 1);
+
+	// Take this Buf from dedicated to 2d drawing rsx's memory array
+	// which is allocated only once and had size 128 * 4096 bytes
+	// 4096 2d images limit should be enough as well as 128 bytes
+	// for 4 element vertexes arrays (with uv actual size is 64)
+	float* vBuf = (float*)R_RSX_Draw_next2DVertexBuffer();
+
+	float vBuf_c[16] = {
+	//  X,   Y,   S,  T
+		fx,  fh,  sl, th,
+		fx,  fy,  sl, tl,
+		fw,  fh,  sh, th,
+		fw,  fy,  sh, tl
+	};
+
+	memcpy(vBuf, &vBuf_c, sizeof(float) * 16);
 
 	// GL3_BindVAO(vao2D);
 
@@ -119,6 +195,29 @@ drawTexturedRectangle(float x, float y, float w, float h,
 	// glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
 	//glMultiDrawArrays(mode, first, count, drawcount) ??
+
+	rsxAddressToOffset(&vBuf[0], &offset);
+
+	rsxBindVertexArrayAttrib(gcmContext,
+	                         GCM_VERTEX_ATTRIB_POS,
+	                         0,
+	                         offset,
+	                         sizeof(float) * 4,
+	                         2,
+	                         GCM_VERTEX_DATA_TYPE_F32,
+	                         GCM_LOCATION_RSX);
+
+	rsxAddressToOffset(&vBuf[2], &offset);
+	rsxBindVertexArrayAttrib(gcmContext,
+	                         GCM_VERTEX_ATTRIB_TEX0,
+	                         0,
+	                         offset,
+	                         sizeof(float) * 4,
+	                         2,
+	                         GCM_VERTEX_DATA_TYPE_F32,
+	                         GCM_LOCATION_RSX);
+
+	rsxDrawVertexArray(gcmContext, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 }
 
 /*
@@ -127,140 +226,150 @@ drawTexturedRectangle(float x, float y, float w, float h,
  * smoothly scrolled off.
  */
 void
-rsx_draw_char_scaled(int x, int y, int num, float scale)
+R_RSX_Draw_CharScaled(int x, int y, int num, float scale)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
+	// {
+	// 	printf("%s(%c)\n", __func__, num);
+	// 	is_first_call = false;
+	// }
+
+	int row, col;
+	float frow, fcol, size, scaledSize;
+	num &= 255;
+
+	if ((num & 127) == 32)
 	{
-		printf("%s(%s)\n", __func__);
-		is_first_call = false;
+		return; /* space */
 	}
 
-	// int row, col;
-	// float frow, fcol, size, scaledSize;
-	// num &= 255;
+	if (y <= -8)
+	{
+		return; /* totally off screen */
+	}
 
-	// if ((num & 127) == 32)
-	// {
-	// 	return; /* space */
-	// }
+	row = num >> 4;
+	col = num & 15;
 
-	// if (y <= -8)
-	// {
-	// 	return; /* totally off screen */
-	// }
+	frow = row * 0.0625;
+	fcol = col * 0.0625;
+	size = 0.0625;
 
-	// row = num >> 4;
-	// col = num & 15;
-
-	// frow = row * 0.0625;
-	// fcol = col * 0.0625;
-	// size = 0.0625;
-
-	// scaledSize = 8*scale;
+	scaledSize = 8*scale;
 
 	// TODO: batchen?
 
 	// GL3_UseProgram(gl3state.si2D.shaderProgram);
 	// GL3_Bind(draw_chars->texnum);
-	// drawTexturedRectangle(x, y, scaledSize, scaledSize, fcol, frow, fcol+size, frow+size);
+	R_RSX_Image_BindUni2DTex0(draw_chars);
+	R_RSX_Shaders_Load(&(gl3state.vs2DTexture));
+	R_RSX_Shaders_Load(&(gl3state.fs2DTexture));
+
+	R_RSX_Draw_texturedRectangle(x, y, scaledSize, scaledSize, fcol, frow, fcol+size, frow+size);
 }
 
 gl3image_t *
-rsx_draw_find_pic(char *name)
+R_RSX_Draw_FindPic(char *name)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
+	// {
+	// 	printf("%s(%s)\n", __func__, name);
+	// 	is_first_call = false;
+	// }
+
+	gl3image_t *pic;
+	char fullname[MAX_QPATH];
+
+	if ((name[0] != '/') && (name[0] != '\\'))
 	{
-		printf("%s(%s)\n", __func__, name);
-		is_first_call = false;
+		Com_sprintf(fullname, sizeof(fullname), "pics/%s.pcx", name);
+		pic = R_RSX_Image_FindImage(fullname, it_pic);
+	}
+	else
+	{
+		pic = R_RSX_Image_FindImage(name + 1, it_pic);
 	}
 
-	// gl3image_t *gl;
-	// char fullname[MAX_QPATH];
-
-	// if ((name[0] != '/') && (name[0] != '\\'))
-	// {
-	// 	Com_sprintf(fullname, sizeof(fullname), "pics/%s.pcx", name);
-	// 	gl = rsx_find_image(fullname, it_pic);
-	// }
-	// else
-	// {
-	// 	gl = rsx_find_image(name + 1, it_pic);
-	// }
-
-	// return gl;
+	return pic;
 }
 
 void
-res_draw_get_pic_size(int *w, int *h, char *pic)
+R_RSX_Draw_GetPicSize(int *w, int *h, char *pic)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s(%s)\n", __func__, pic);
-		is_first_call = false;
-	}
-
-	// gl3image_t *gl;
-
-	// gl = rsx_draw_find_pic(pic);
-
-	// if (!gl)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
 	// {
-	// 	*w = *h = -1;
-	// 	return;
+	// 	printf("%s(%s)\n", __func__, pic);
+	// 	is_first_call = false;
 	// }
 
-	// *w = gl->width;
-	// *h = gl->height;
+	gl3image_t *gl;
+
+	gl = R_RSX_Draw_FindPic(pic);
+
+	if (!gl)
+	{
+		*w = *h = -1;
+		return;
+	}
+
+	*w = gl->width;
+	*h = gl->height;
 }
 
 void
-rsx_draw_stretch_pic(int x, int y, int w, int h, char *pic)
+R_RSX_Draw_StretchPic(int x, int y, int w, int h, char *pic)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s(%s)\n", __func__, pic);
-		is_first_call = false;
-	}
-
-	// gl3image_t *gl = rsx_draw_find_pic(pic);
-
-	// if (!gl)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
 	// {
-	// 	R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
-	// 	return;
+	// 	printf("%s(%s)\n", __func__, pic);
+	// 	is_first_call = false;
 	// }
+
+	gl3image_t *gl = R_RSX_Draw_FindPic(pic);
+
+	if (!gl)
+	{
+		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		return;
+	}
 
 	// GL3_UseProgram(gl3state.si2D.shaderProgram);
 	// GL3_Bind(gl->texnum);
+	R_RSX_Image_BindUni2DTex0(gl);
+	R_RSX_Shaders_Load(&(gl3state.vs2DTexture));
+	R_RSX_Shaders_Load(&(gl3state.fs2DTexture));
 
-	// drawTexturedRectangle(x, y, w, h, gl->sl, gl->tl, gl->sh, gl->th);
+	R_RSX_Draw_texturedRectangle(x, y, w, h, gl->sl, gl->tl, gl->sh, gl->th);
 }
 
 void
-rsx_draw_pic_scaled(int x, int y, char *pic, float factor)
+R_RSX_Draw_PicScaled(int x, int y, char *pic, float factor)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s(%s)\n", __func__, pic);
-		is_first_call = false;
-	}
-
-	// gl3image_t *gl = rsx_draw_find_pic(pic);
-	// if (!gl)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
 	// {
-	// 	R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
-	// 	return;
+	// 	printf("%s(%s)\n", __func__, pic);
+	// 	is_first_call = false;
 	// }
+
+	gl3image_t *gl = R_RSX_Draw_FindPic(pic);
+	if (!gl)
+	{
+		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		return;
+	}
 
 	// GL3_UseProgram(gl3state.si2D.shaderProgram);
 	// GL3_Bind(gl->texnum);
+	R_RSX_Image_BindUni2DTex0(gl);
+	R_RSX_Shaders_Load(&(gl3state.vs2DTexture));
+	R_RSX_Shaders_Load(&(gl3state.fs2DTexture));
 
-	// drawTexturedRectangle(x, y, gl->width*factor, gl->height*factor, gl->sl, gl->tl, gl->sh, gl->th);
+	R_RSX_Draw_texturedRectangle(x, y, gl->width*factor, gl->height*factor, gl->sl, gl->tl, gl->sh, gl->th);
 }
 
 /*
@@ -269,31 +378,35 @@ rsx_draw_pic_scaled(int x, int y, char *pic, float factor)
  * refresh window.
  */
 void
-rsx_draw_tile_clear(int x, int y, int w, int h, char *pic)
+R_RSX_Draw_TileClear(int x, int y, int w, int h, char *pic)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s(%s)\n", __func__, pic);
-		is_first_call = false;
-	}
-
-	// gl3image_t *image = rsx_draw_find_pic(pic);
-	// if (!image)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
 	// {
-	// 	R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
-	// 	return;
+	// 	printf("%s(%s)\n", __func__, pic);
+	// 	is_first_call = false;
 	// }
+
+	gl3image_t *image = R_RSX_Draw_FindPic(pic);
+	if (!image)
+	{
+		R_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		return;
+	}
 
 	// GL3_UseProgram(gl3state.si2D.shaderProgram);
 	// GL3_Bind(image->texnum);
+	R_RSX_Image_BindUni2DTex0(image);
+	R_RSX_Shaders_Load(&(gl3state.vs2DTexture));
+	R_RSX_Shaders_Load(&(gl3state.fs2DTexture));
 
-	// drawTexturedRectangle(x, y, w, h, x/64.0f, y/64.0f, (x+w)/64.0f, (y+h)/64.0f);
+	R_RSX_Draw_texturedRectangle(x, y, w, h, x/64.0f, y/64.0f, (x+w)/64.0f, (y+h)/64.0f);
 }
 
-void
-GL3_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4])
+void // 252
+R_RSX_Draw_FrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4])
 {
+	NOT_IMPLEMENTED();
 	// qboolean underwater = (gl3_newrefdef.rdflags & RDF_UNDERWATER) != 0;
 	// gl3ShaderInfo_t* shader = underwater ? &gl3state.si2DpostProcessWater
 	//                                      : &gl3state.si2DpostProcess;
@@ -309,129 +422,179 @@ GL3_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const f
 	// 	glUniform4fv(shader->uniVblend, 1, v_blend);
 	// }
 
-	// drawTexturedRectangle(x, y, w, h, 0, 1, 1, 0);
+	// R_RSX_Draw_texturedRectangle(x, y, w, h, 0, 1, 1, 0);
 }
 
 /*
  * Fills a box of pixels with a single color
  */
 void
-rsx_draw_fill(int x, int y, int w, int h, int c)
+R_RSX_Draw_Fill(int x, int y, int w, int h, int c)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
+	// {
+	// 	printf("%s()\n", __func__);
+	// 	is_first_call = false;
+	// }
+
+	union {
+		unsigned c;
+		byte v[4];
+	} color;
+
+	int i;
+	uint32_t offset;
+	float fx, fy, fw, fh;
+
+	if ((unsigned)c > 255)
 	{
-		printf("%s()\n", __func__);
-		is_first_call = false;
+		ri.Sys_Error(ERR_FATAL, "Draw_Fill: bad color");
 	}
 
-	// union
-	// {
-	// 	unsigned c;
-	// 	byte v[4];
-	// } color;
-	// int i;
+	color.c = d_8to24table[c];
 
-	// if ((unsigned)c > 255)
-	// {
-	// 	ri.Sys_Error(ERR_FATAL, "Draw_Fill: bad color");
-	// }
+	// conversion from Quake2 cords to RSX's render cords
+	fx = ((float)x) / (vid.width / 2) - 1.0f;
+	fy = -((((float)y) / (vid.height / 2)) - 1.0f);
+	fw = (((float)(x+w)) / (vid.width / 2)) - 1.0f;
+	fh = -((((float)(y+h)) / (vid.height / 2)) - 1.0f);
 
-	// color.c = d_8to24table[c];
+	float* vBuf = (float*)R_RSX_Draw_next2DVertexBuffer();
 
-	// // [2, 3] {x, y}     [6, 7] {x+w, y}
-	// //       *-----------------*
-	// //       |                 |
-	// //       *-----------------*
-	// // [0, 1] {x, y+h}   [4, 5] {x+w, y+h}
+	float vBuf_c[8] = {
+	//  X,   Y, 
+		fx,  fh,
+		fx,  fy,
+		fw,  fh,
+		fw,  fy
+	};
 
-	// float vBuf[8] = {
-	// //  X,   Y
-	// 	x,   y+h,
-	// 	x,   y,
-	// 	x+w, y+h,
-	// 	x+w, y
-	// };
+	memcpy(vBuf, &vBuf_c, sizeof(float) * 8);
 
-	// for(i=0; i<3; ++i)
-	// {
-	// 	gl3state.uniCommonData.color.Elements[i] = color.v[i] * (1.0f/255.0f);
-	// }
-	// gl3state.uniCommonData.color.A = 1.0f;
+	for(i = 0; i < 3; ++i)
+	{
+		gl3state.uniCommonData.color.Elements[i] = color.v[i] * (1.0f/255.0f);
+	}
+	gl3state.uniCommonData.color.A = 1.0f;
 
 	// GL3_UpdateUBOCommon();
+	R_RSX_Shaders_UpdateUniCommonData();
 
 	// GL3_UseProgram(gl3state.si2Dcolor.shaderProgram);
 	// GL3_BindVAO(vao2Dcolor);
+	R_RSX_Shaders_Load(&(gl3state.vs2DColor));
+	R_RSX_Shaders_Load(&(gl3state.fs2DColor));
 
 	// GL3_BindVBO(vbo2D);
 	// glBufferData(GL_ARRAY_BUFFER, sizeof(vBuf), vBuf, GL_STREAM_DRAW);
+	rsxAddressToOffset(&vBuf[0], &offset);
+
+	rsxBindVertexArrayAttrib(gcmContext,
+	                         GCM_VERTEX_ATTRIB_POS,
+	                         0,
+	                         offset,
+	                         sizeof(float) * 2,
+	                         2,
+	                         GCM_VERTEX_DATA_TYPE_F32,
+	                         GCM_LOCATION_RSX);
 
 	// glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	rsxDrawVertexArray(gcmContext, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 }
 
 // in GL1 this is called R_Flash() (which just calls R_PolyBlend())
 // now implemented in 2D mode and called after SetGL2D() because
 // it's pretty similar to GL3_Draw_FadeScreen()
 void
-rsx_draw_flash(const float color[4], float x, float y, float w, float h)
+R_RSX_Draw_Flash(const float color[4], float x, float y, float w, float h)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s()\n", __func__);
-		is_first_call = false;
-	}
-	// int i=0;
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
+	// {
+	// 	printf("%s()\n", __func__);
+	// 	is_first_call = false;
+	// }
+	int i = 0;
+	uint32_t offset;
+	float fx, fy, fw, fh;
 
-	// GLfloat vBuf[8] = {
-	// //  X,   Y
-	// 	x,   y+h,
-	// 	x,   y,
-	// 	x+w, y+h,
-	// 	x+w, y
-	// };
+	// conversion from Quake2 cords to RSX's render cords
+	fx = ((float)x) / (vid.width / 2) - 1.0f;
+	fy = -((((float)y) / (vid.height / 2)) - 1.0f);
+	fw = (((float)(x+w)) / (vid.width / 2)) - 1.0f;
+	fh = -((((float)(y+h)) / (vid.height / 2)) - 1.0f);
+
+	float* vBuf = (float*)R_RSX_Draw_next2DVertexBuffer();
+
+	float vBuf_c[8] = {
+	//  X,   Y, 
+		fx,  fh,
+		fx,  fy,
+		fw,  fh,
+		fw,  fy
+	};
+
+	memcpy(vBuf, &vBuf_c, sizeof(float) * 8);
 
 	// glEnable(GL_BLEND);
+	rsxSetBlendEnable(gGcmContext, GCM_TRUE);
 
-	// for(i=0; i<4; ++i)  gl3state.uniCommonData.color.Elements[i] = color[i];
+	for (i = 0; i < 4; ++i)
+	{
+		gl3state.uniCommonData.color.Elements[i] = color[i];
+	}
 
 	// GL3_UpdateUBOCommon();
+	R_RSX_Shaders_UpdateUniCommonData();
 
 	// GL3_UseProgram(gl3state.si2Dcolor.shaderProgram);
-
 	// GL3_BindVAO(vao2Dcolor);
+	R_RSX_Shaders_Load(&(gl3state.vs2DColor));
+	R_RSX_Shaders_Load(&(gl3state.fs2DColor));
 
 	// GL3_BindVBO(vbo2D);
 	// glBufferData(GL_ARRAY_BUFFER, sizeof(vBuf), vBuf, GL_STREAM_DRAW);
+	rsxAddressToOffset(&vBuf[0], &offset);
+	rsxBindVertexArrayAttrib(gcmContext,
+	                         GCM_VERTEX_ATTRIB_POS,
+	                         0,
+	                         offset,
+	                         sizeof(float) * 2,
+	                         2,
+	                         GCM_VERTEX_DATA_TYPE_F32,
+	                         GCM_LOCATION_RSX);
 
 	// glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	rsxDrawVertexArray(gcmContext, GCM_TYPE_TRIANGLE_STRIP, 0, 4);
 
 	// glDisable(GL_BLEND);
+	rsxSetBlendEnable(gGcmContext, GCM_FALSE);
 }
 
 void
-rsx_draw_fade_screen(void)
+R_RSX_Draw_FadeScreen(void)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s()\n", __func__);
-		is_first_call = false;
-	}
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
+	// {
+	// 	printf("%s()\n", __func__);
+	// 	is_first_call = false;
+	// }
 	float color[4] = {0, 0, 0, 0.6f};
-	rsx_draw_flash(color, 0, 0, vid.width, vid.height);
+	R_RSX_Draw_Flash(color, 0, 0, vid.width, vid.height);
 }
 
+/**
+ * Used for per frame cinematic rendering
+ */
 void
-rsx_draw_stretch_raw(int x, int y, int w, int h, int cols, int rows, byte *data)
+R_RSX_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, byte *data)
 {
-	static qboolean is_first_call = true;
-	if (is_first_call)
-	{
-		printf("%s()\n", __func__);
-		is_first_call = false;
-	}
+	// Requires to build texture from <data>, draw it and then free it
+	// static qboolean is_first_call = true;
+	NOT_IMPLEMENTED();
+
 	// int i, j;
 
 	// GL3_Bind(0);
@@ -486,36 +649,43 @@ rsx_draw_stretch_raw(int x, int y, int w, int h, int cols, int rows, byte *data)
 }
 
 int
-GL3_Draw_GetPalette(void)
+R_RSX_Draw_GetPalette(void)
 {
-	// int i;
-	// int r, g, b;
-	// unsigned v;
-	// byte *pic, *pal;
-	// int width, height;
-
-	// /* get the palette */
-	// LoadPCX("pics/colormap.pcx", &pic, &pal, &width, &height);
-
-	// if (!pal)
+	// static qboolean is_first_call = true;
+	// if (is_first_call)
 	// {
-	// 	ri.Sys_Error(ERR_FATAL, "Couldn't load pics/colormap.pcx");
+	// 	printf("%s()\n", __func__);
+	// 	is_first_call = false;
 	// }
 
-	// for (i = 0; i < 256; i++)
-	// {
-	// 	r = pal[i * 3 + 0];
-	// 	g = pal[i * 3 + 1];
-	// 	b = pal[i * 3 + 2];
+	int i;
+	int r, g, b;
+	unsigned v;
+	byte *pic, *pal;
+	int width, height;
 
-	// 	v = (255 << 24) + (r << 0) + (g << 8) + (b << 16);
-	// 	d_8to24table[i] = LittleLong(v);
-	// }
+	/* get the palette */
+	LoadPCX("pics/colormap.pcx", &pic, &pal, &width, &height);
 
-	// d_8to24table[255] &= LittleLong(0xffffff); /* 255 is transparent */
+	if (!pal)
+	{
+		ri.Sys_Error(ERR_FATAL, "Couldn't load pics/colormap.pcx");
+	}
 
-	// free(pic);
-	// free(pal);
+	for (i = 0; i < 256; i++)
+	{
+		r = pal[i * 3 + 0];
+		g = pal[i * 3 + 1];
+		b = pal[i * 3 + 2];
+
+		v = (255 << 24) + (r << 0) + (g << 8) + (b << 16);
+		d_8to24table[i] = LittleLong(v);
+	}
+
+	d_8to24table[255] &= LittleLong(0xffffff); /* 255 is transparent */
+
+	free(pic);
+	free(pal);
 
 	return 0;
 }

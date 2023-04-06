@@ -24,8 +24,8 @@
  * =======================================================================
  */
 
-#ifndef SRC_CLIENT_REFRESH_GL3_HEADER_MODEL_H_
-#define SRC_CLIENT_REFRESH_GL3_HEADER_MODEL_H_
+#ifndef SRC_CLIENT_REFRESH_RSX_HEADER_MODEL_H_
+#define SRC_CLIENT_REFRESH_RSX_HEADER_MODEL_H_
 
 enum {
 	SIDE_FRONT = 0,
@@ -124,7 +124,7 @@ typedef struct msurface_s
 	int dlightframe;
 	int dlightbits;
 
-	int lightmaptexturenum;
+	uint32_t lightmaptexturenum;
 	byte styles[MAXLIGHTMAPS]; // MAXLIGHTMAPS = MAX_LIGHTMAPS_PER_SURFACE (defined in local.h)
 	// I think cached_light is not used/needed anymore
 	//float cached_light[MAXLIGHTMAPS];       /* values currently used in lightmap */
@@ -239,4 +239,4 @@ typedef struct model_s
 	vec3_t		origin;	// for sounds or lights
 } gl3model_t;
 
-#endif /* SRC_CLIENT_REFRESH_GL3_HEADER_MODEL_H_ */
+#endif /* SRC_CLIENT_REFRESH_RSX_HEADER_MODEL_H_ */

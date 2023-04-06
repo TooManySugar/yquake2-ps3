@@ -1,0 +1,13 @@
+void main
+(
+	uniform float gamma,
+	uniform float intensity2D,
+	uniform float4 color,
+	
+	out float4 oColor
+)
+{
+	float3 col = color.rgb * intensity2D;
+	oColor.rgb = pow(col, float3(gamma));
+	oColor.a = color.a;
+}

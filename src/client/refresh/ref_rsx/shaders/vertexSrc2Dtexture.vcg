@@ -1,0 +1,16 @@
+void main
+(
+	float2 vertexPosition : POSITION,
+	float2 vertexTexcoord : TEXCOORD0,
+
+	uniform float4x4 transModel,
+
+	out float4 ePosition : POSITION, 	// gl_Position
+	out float2 oTexcoord : TEXCOORD2
+)
+{
+	ePosition = mul(transModel, float4(vertexPosition, 0.0f, 1.0f));
+	// ePosition = float4(vertexPosition, 0.0f, 1.0f);
+
+	oTexcoord = vertexTexcoord;
+}

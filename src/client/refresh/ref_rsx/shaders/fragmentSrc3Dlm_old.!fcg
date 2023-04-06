@@ -1,0 +1,147 @@
+unsigned int ito2pow(unsigned int i)
+{
+	static const unsigned int powers[32] = {
+		1,
+		2,
+		4,
+		8,
+		16,
+		32,
+		64,
+		128,
+		256,
+		512,
+		1024,
+		2048,
+		4096,
+		8192,
+		16384,
+		32768,
+		65536,
+		131072,
+		262144,
+		524288,
+		1048576,
+		2097152,
+		4194304,
+		8388608,
+		16777216,
+		33554432,
+		67108864,
+		134217728,
+		268435456,
+		536870912,
+		1073741824,
+		2147483648
+	};
+
+	return powers[i];
+}
+
+
+void main
+(
+	// Passed from vertex shader
+	float3 position : TEXCOORD0, // passWorldCoord
+	float3 normal : TEXCOORD1, // passNormal
+	float2 texcoord : TEXCOORD2, // passTexCoord
+	float2 lmcoord : TEXCOORD3, // passLMcoord
+	unsigned int lightflags : TEXCOORD4, // passLightFlags
+
+	uniform float overbrightbits,
+	uniform float gamma,
+	uniform float intensity,
+
+	uniform sampler2D texture,
+
+	uniform sampler2D lightmap0,
+	uniform sampler2D lightmap1,
+	uniform sampler2D lightmap2,
+	uniform sampler2D lightmap3,
+
+	uniform float4 lm0_scale,
+	uniform float4 lm1_scale,
+	uniform float4 lm2_scale,
+	uniform float4 lm3_scale,
+
+	// ohhhh good old GPUs
+	/* Because old GPUs don't support indexing arrays of
+	 * data in uniform we create linear textures which are
+	 * represent position and color. Indexing them using loop
+	 * iterator, for position drop alpha */
+	uniform sampler1D dyn_lights_pos_vec,
+	uniform sampler1D dyn_lights_color_vec,
+	
+	out float4 oColor
+)
+{
+	float4 texel = tex2D(texture, texcoord);
+
+	// apply intensity
+	texel.rgb *= intensity;
+
+	// blend lightmaps
+	float4 lm_texel = tex2D(lightmap0, lmcoord) * lm0_scale;
+	lm_texel       += tex2D(lightmap1, lmcoord) * lm1_scale;
+	lm_texel       += tex2D(lightmap2, lmcoord) * lm2_scale;
+	lm_texel       += tex2D(lightmap3, lmcoord) * lm3_scale;
+
+
+	// process dynamic lightmaps
+	// if(lightflags != 0u)
+	{
+		for(int i = 0u; i < 32; ++i)
+		{
+			// I made the following up, it's probably not too cool..
+			// it basically checks if the light is on the right side of the surface
+			// and, if it is, sets intensity according to distance between light and pixel on surface
+
+			// dyn light number i does not affect this plane, just skip it
+			// if((lightflags & (1u << i)) == 0u)  continue;
+			/* cg language does not support bit shifts (and speaking of RSX's 'bitwise and' too)
+			 * so do it arithmetically */
+
+			// unsigned int temp_lightflags = lightflags;
+			// if (i < 31)
+			// {
+			// 	temp_lightflags %= ito2pow(i+1);
+			// }
+
+			// if (temp_lightflags == 0u) continue;
+
+			float3 light_pos;
+			float4 light_color;
+
+			light_pos = tex1D(dyn_lights_pos_vec, float2(i)).xyz;
+			
+			light_color = tex1D(dyn_lights_color_vec, float(i));
+
+			float intens = light_color.a;
+
+			float3 lightToPos = light_pos - position;
+
+			// NOTE: now and then many consts changed/added to get effect closer to gl3
+			float distLightToPos = length(lightToPos)/2;
+			float fact = max(0.0f, intens - distLightToPos - 34.0f);
+
+			// move the light source a bit further above the surface
+			// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
+			//    that the dot product below would return 0
+			// (light sources that are below the surface are filtered out by lightFlags)
+			lightToPos += normal * 32.0f;
+
+			// also factor in angle between light and point on surface
+			fact *= max(0.0, dot(normal, normalize(lightToPos)));
+
+			// Divide by 6 to make it less distinct
+			lm_texel.rgb += light_color.rgb * fact / 6.0f * (1.0f / 256.0f);
+		}
+	}
+
+	lm_texel.rgb *= overbrightbits;
+	oColor = lm_texel * texel;
+	// apply gamma correction to result
+	oColor.rgb = pow(oColor.rgb, float3(gamma));;
+
+	oColor.a = 1.0; // lightmaps aren't used with translucent surfaces
+}

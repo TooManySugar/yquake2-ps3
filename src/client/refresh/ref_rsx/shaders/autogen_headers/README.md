@@ -1,0 +1,1 @@
+Content of this folder recreated on build

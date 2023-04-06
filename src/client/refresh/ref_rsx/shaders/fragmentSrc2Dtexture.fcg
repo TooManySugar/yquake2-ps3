@@ -1,0 +1,25 @@
+void main
+(
+	float2 texcoord : TEXCOORD2,
+
+	uniform float gamma,
+	uniform float intensity, // Not used
+	uniform float intensity2D,
+	uniform sampler2D texture,
+	
+	out float4 oColor
+	
+)
+{
+	float4 texel = tex2D(texture, texcoord);
+	// the gl1 renderer used glAlphaFunc(GL_GREATER, 0.666);
+	// and glEnable(GL_ALPHA_TEST); for 2D rendering
+	// this should do the same
+	if(texel.a <= 0.666)
+		discard;
+
+	// apply gamma correction and intensity
+	texel.rgb *= intensity2D;
+	oColor.rgb = pow(texel.rgb, float3(gamma));
+	oColor.a = texel.a; // I think alpha shouldn't be modified by gamma and intensity
+}

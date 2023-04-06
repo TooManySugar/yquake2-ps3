@@ -27,7 +27,7 @@
 #include "header/local.h"
 
 void
-PS_LoadSP2(gl3model_t *mod, void *buffer, int modfilelen)
+R_RSX_Mod_LoadSP2(gl3model_t *mod, void *buffer, int modfilelen)
 {
 	dsprite_t *sprin, *sprout;
 	int i;
@@ -60,9 +60,8 @@ PS_LoadSP2(gl3model_t *mod, void *buffer, int modfilelen)
 		sprout->frames[i].origin_x = LittleLong(sprin->frames[i].origin_x);
 		sprout->frames[i].origin_y = LittleLong(sprin->frames[i].origin_y);
 		memcpy(sprout->frames[i].name, sprin->frames[i].name, MAX_SKINNAME);
-		mod->skins[i] = GL3_FindImage(sprout->frames[i].name, it_sprite);
+		mod->skins[i] = R_RSX_Image_FindImage(sprout->frames[i].name, it_sprite);
 	}
 
 	mod->type = mod_sprite;
 }
-

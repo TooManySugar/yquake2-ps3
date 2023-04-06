@@ -1,0 +1,18 @@
+void main
+(
+	float3 vertexPosition : POSITION,
+	float2 vertexTexcoord : TEXCOORD0,
+
+	uniform float scroll,
+
+	uniform float4x4 transProjView,
+	uniform float4x4 transModel,
+
+	out float4 ePosition : POSITION, // gl_Position
+	out float2 oTexcoord : TEXCOORD2 // passTexCoord
+)
+{
+	oTexcoord = vertexTexcoord + float2(scroll, 0.0f);
+
+	ePosition = mul(mul(transProjView, transModel), float4(vertexPosition, 1.0f));
+}

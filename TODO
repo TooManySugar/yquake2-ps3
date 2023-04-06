@@ -1,0 +1,257 @@
+This file keeps notes on RSX refresher work until I opened repository. Mostly history, might be usefull.
+
+1. Log WriteLevelData and Sys_ChangeWorkingDirectory need testing on PS3
+v 2. Code clean up
+v 3. Sound
+v 4. Remove doubling rsxutil.c
+
+(1)Expected at log: 
+SV_GameMap(ware1)
+SV_WriteLevelFile()
+Sys_GetWorkDir: /dev_hdd0/game/QUAKE2/
+Sys_SetWorkDir(/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current)
+Sys_GetWorkDir: /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/
+Q_fopen : 'bunk1.sav' ==> '/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/bunk1.sav'
+Sys_SetWorkDir(/dev_hdd0/game/QUAKE2/)
+------- server initialization ------
+SpawnServer: ware1
+61 entities inhibited.
+9 teams with 17 entities.
+------------------------------------
+
+SV_WriteServerFile(true)
+Sys_GetWorkDir: /dev_hdd0/game/QUAKE2/
+Sys_SetWorkDir(/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current)
+Sys_GetWorkDir: /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/
+Q_fopen : 'game.ssv' ==> '/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/game.ssv'
+Sys_SetWorkDir(/dev_hdd0/game/QUAKE2/)
+SV_CopySaveGame(current, save0)
+SV_WipeSaveGame(save0)
+CopyFile (/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/server.ssv, /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/save0/server.ssv)
+CopyFile (/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/game.ssv, /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/save0/game.ssv)
+CopyFile (/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/bunk1.sav, /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/save0/bunk1.sav)
+CopyFile (/dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/current/bunk1.sv2, /dev_hdd0/game/QUAKE2/USRDIR/baseq2/save/save0/bunk1.sv2)
+   28 ms  29/  2/  2 poly   0 surf
+stufftext: changing
+
+
+Changing map...
+
+
+[ ] RE_BeginRegistration
+[ ] RE_RegisterModel
+[ ] RE_RegisterSkin
+[ ] RE_Draw_FindPic                - Independent
+[ ] RE_SetSky
+[ ] RE_EndRegistration
+
+[ ] RE_RenderFrame
+
+[ ] RE_Draw_GetPicSize             - Independent
+
+Direct buffer drawing 
+[ ] RE_Draw_PicScaled
+[ ] RE_Draw_StretchPic
+[ ] RE_Draw_CharScaled
+[ ] RE_Draw_TileClear
+[x] RE_Draw_Fill                   - Fills a box of pixels with a single color (pallete) without blend
+[x] RE_Draw_Flash                  - Fills a box of pixels with a single color (RGBA) with blend
+[x] RE_Draw_FadeScreen             - Just like Draw_Fill but with blend and RGBA(0.0, 0.0, 0.0, 0.6)
+                                     FadeScreen must be last of 2D things
+[x] RE_Draw_GetPallete             - Independent
+
+[ ] RE_Draw_StretchRaw
+
+[ ] RE_Init
+
+[ ] RE_IsVsyncActive
+[ ] RE_Shutdown
+[ ] RE_InitContext
+[ ] RE_ShutdownContext
+[ ] RE_PrepareForWindow
+
+[ ] RE_SetPalette
+[ ] RE_BeginFrame
+[ ] RE_EndWorldRenderpass
+[ ] RE_EndFrame
+
+[ ] GL3_Upload32  // Need to shift texture bits to store as ARGB not RGBA
+[ ] GL3_Upload8 - 8 bit image wrapper around GL3_Upload32 
+[ ] GL3_LoadPic - loads file as picture into memory returning structure to use with shaders:
+texture_offset
+
+typedef struct image_s
+{
+	char name[MAX_QPATH];               /* game path, including extension */
+	imagetype_t type;
+	int width, height;                  /* source image */                                <== same as in gcmTexuture
+	//int upload_width, upload_height;    /* after power of two and picmip */
+	int registration_sequence;          /* 0 = free */
+	struct msurface_s *texturechain;    /* for sort-by-texture world drawing */
+	GLuint texnum;                      /* gl texture binding */                          <== repalce by gcmTexuture with offset pointer
+	float sl, tl, sh, th;               /* 0,0 - 1,1 unless part of the scrap */
+	// qboolean scrap; // currently unused
+	qboolean has_alpha;
+
+} gl3image_t;
+
+
+
+[x] Fully complete Mod_LoadFaces
+[x] and then RecursiveWorldNode
+
+[x] 3D DLM shaders wrappers
+
+
+[x] DepthTest not working 
+[x] SkyBox wrong texture
+[x] Lightmap shaders not working right:
+    [x] Vertex: fails at state self check
+    [x] Fragment: Lightmaps seems to be empty
+
+[x] Flowing lightmap shaders
+Regorganize shaders code
+[x] Regorganize texture code (texture filtering accodrding to state used in bind)
+[x] Dynamic Lights
+
+14.03
+[x] buffer rsx mesh calls
+[x] Enemies rotation seems to be wrong
+[x] draw_brush_model - positioning broken, can be seen in first door at outerbase
+[x] rsx_surf: alpha surface positioning broken, can be seen with window (lack of it) at outerbase shader loading error?
+
+
+15.03
+[x]draw_alias_model: z-buffering (or how it called in quake 2) for transparent rendering, smoke effects seen through walls
+	I was toggling rsxSetDepthTestEnable (entire work of depth test) instead of rsxSetDepthWriteEnable (writing to detpth buffer)
+
+16.03
+[x] Complete particle shaders (non square):
+	- [x] pass to vertex shader particles screen dimensions
+	- [x] take code after return in fragment particles shader to separate shader
+	- [x] remove unnecessary stuff from fragment particles squared shader
+[x]	alpha surfaces - no textures, not alpha (lol)
+	passed pointer's address instead of pointer itself in fragment 3d shader init
+
+17.03
+[x] Complete water rendering
+NOTE: I think that's it. HW renderer draws everything I expect to see.
+But there is still some parts of code that I haven't done. Marked them in this TODO for
+further work.
+Also make logging on rsx memory allocation and free'ing:
+Things much better then I expected! Only missed some free's of fragment shaders and
+allocated lightmap buffers way too many times. Now it seems renderer have not memory
+leaks (at least in rsx's memory segment)
+but it looks like hunk allocator having memory leak on every level loading around 11 MiB.
+
+18.03
+[x] free fragment alias memory
+[x] free fragment particles memory
+[x] fragmentSrc3Dcolor
+[x] GL3_DrawBeam
+[x] Sound Clear now working
+
+19.03 and 20.03
+NOTE: Changes to Makefile. Prebuild pkg.py utility for Linux and Windows both x64.
+added prepkg build target for creating zip arhive with mentioned utility and 
+crete_pkg scripts  for users themselfes create packages with pack*.pak music 
+etc in baseq2. Now game running from QUAKE2_00 folder b/c requirements of 9 chars
+for game folders  
+
+21.03
+[x] fragmentSrcAliasColor
+[x] GL3_DrawAliasShadows (dont have stencil buffer)
+[x] looks like hunk allocator having memory leak on every level loading around 11 MiB
+	memory leak was different size, but still taken place due to missed Mod_FreeAll 
+NOTE: Started reviewing code and switching to R_RSX_<[P/p]ascalCase> naming for
+rsx renderer function. Spotted some perfomance wise weak places marked them, if 
+perfomance on real hardware will be underwhelming it is the first places to look for.
+After resolving memory leak issue kept game running for a bit more than a hour at
+demo levels. No crashes, no glitches - I consider it "stable enough" for a current
+state of project.
+
+22.03
+[x] Cant start on real hardware
+	summarized all causes and issues in TODOs
+
+23.03 (early morning)
+[x] 3D drawing causes currsed things if dist ~0 can be seen in weapon model and world drawing completly broken
+	it had something with vertex outside of ViewPort
+	Disabled sky for testing.
+	The issue was indeed in ViewPort: I incorrectly setup it at RSX and further broke R_MYgluPerspective to fix
+	incorrect ViewPort (it all was back in august). Also RPCS3 viewport polygon clipping works not like on
+	real hardware which resulting in normal looking picture. I mean, I have ViewPort seted rotated up (rsxSetViewPort)
+	and then rotated projection matrix down to see correct things, but RSX tried to cut them off or something leading
+	to some scary geometry glitches.
+NOTE (sidenote): Figure out'ing this took me entire day and I lost my sleep. I was really scared of project lock up on
+	this and tilted.
+
+23.03
+[x] clean shaders froom all of those durty things you done to them to understand roots of ViewPort bug.
+[x] rsx_gluPerspective => R_RSX_MYgluPerspective
+[x] rsxMemalign_with_log was changed from macro to function, is it even needed now?
+	returned to macro form, now it is drop in replacement to rsxMemalign without any fidling with ptr as arg
+[x]	particles not working
+
+24.03
+[x] round particles broke
+	see notes in src/client/refresh/ref_rsx/shaders/fragmentSrcParticles.fcg for details
+[x] R_RSX_Light_PushDynLights crashes everything
+	reason: W32_Z32_Y32_X32 texture format
+	reimplemented dynamic lightys pos col intensity pass to shaders by uniforms this made
+	fragment shader 3d lightmap way bigger.
+[x] shaders error: practical intensity of dynamic light affected by pixel distance from near plane
+	done temporary solution see notes in src/client/refresh/ref_rsx/shaders/fragmentSrc3Dlm.fcg 
+
+25.03
+NOTE: Started reworking shader wrapping code
+
+26.03
+[x] Also world drawing causes significant slowdown probably beacause of ViewPort bug accurences or amount of drawcalls
+		World drawing slow even with bug fixed. i.e. perfomance on RPCS3 on my laptop is on pair with real hardware.
+		So now my guess is amount of drawcalls or RecursiveWorldNode.
+		Issue is in heavy shader loading, have to rewrite behaviour of shader's const/atribs setting and shader loading
+NOTE: Complete rework of shaders code. Perfomance improved but not as much as I wish it will.
+
+28.03
+[x]	remove code related to old R_RSX_Light_PushDynLights implementation
+
+TODO:
+
+Clean local.h from OpenGL3 leftovers
+Clean model.h from OpenGL3 leftovers
+
+
+Brush Models (doors, buttons, vents) having trouble rendering 
+	wooow it is a serious issue happening because rare constants (overbrightbits and scroll) in other (but not all)
+	shaders somehow affecting model matrix of vs3dlm shader but not predictable in any way.
+	Maybe I still dont understand how constants in cg shaders works
+	Exact conflicts:
+		3D Vertex Flow          - scroll
+		3D Vertex Lightmap Flow - scroll
+		3D Vertex Alias         - overbrightbits
+
+rsxSetZMinMaxControl now commented out for same reasons why shader code is flooded but which params do it really needed?
+	old ones was 0, 1, 1
+
+Real hardware errors:
+	
+	
+
+[] GL3_DrawSpriteModel (just NOTE)
+[] complete work of Lightflags in fragmentSrc3DlmNoColor and fragmentSrc3Dlm (fragmentSrc3Dlm seems to had it partially)
+[] Shadows drawn to display buffer (resulting in seeing parts of model shadows overlaping) 
+	have to use stencil buffer. By default r_shadows is 0 and gl3state.stencil is false. 
+	Also! Shadows in this state is more like original Quake 2's OpenGL shadows but rotated
+	to closest light source.
+
+
+
+OTHER:
+Image Free sequence - I think it's working havent marked then done on it
+NOTE: Reloading renderer causes issues
+
+[x] Sky had cliping problem can be seen at base2 looking at sky near capsule wings.
+	Seems like brush model rendering fixed it. 
+	It means Quake 2 crops skybox and draws still visible leftovers as separate models. Cool! But wastefull tho... 
+

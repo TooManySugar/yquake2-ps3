@@ -1,3 +1,5 @@
+# This makefile is for software refresher (not working at the moment)
+
 #---------------------------------------------------------------------------------
 # Clear the implicit built in rules
 #---------------------------------------------------------------------------------

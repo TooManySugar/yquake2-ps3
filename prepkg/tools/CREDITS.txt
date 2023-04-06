@@ -1,0 +1,3 @@
+pkg-*
+taken from https://github.com/ps3dev/PSL1GHT/tree/master/tools/ps3py and
+bundled in signle executables to not rely on Python 2.7 installation.

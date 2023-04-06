@@ -26,36 +26,11 @@
  */
 
 
-#ifndef SRC_CLIENT_REFRESH_GL3_HEADER_LOCAL_H_
-#define SRC_CLIENT_REFRESH_GL3_HEADER_LOCAL_H_
+#ifndef SRC_CLIENT_REFRESH_RSX_HEADER_LOCAL_H_
+#define SRC_CLIENT_REFRESH_RSX_HEADER_LOCAL_H_
 
-#define GLuint uint32_t
-#define Gfloat float_t
-
-#ifdef IN_IDE_PARSER
-  // this is just a hack to get proper auto-completion in IDEs:
-  // using system headers for their parsers/indexers but glad for real build
-  // (in glad glFoo is just a #define to glad_glFoo or sth, which screws up autocompletion)
-  // (you may have to configure your IDE to #define IN_IDE_PARSER, but not for building!)
-#ifdef YQ2_GL3_GLES3
-  #include <GLES3/gl32.h>
-#else // desktop GL3
-  #define GL_GLEXT_PROTOTYPES 1
-  #include <GL/gl.h>
-  #include <GL/glext.h>
-#endif
-
-#else
-
-// #ifdef YQ2_GL3_GLES3
-//   #include "../glad-gles3/include/glad/glad.h"
-//   // yes, this is a bit hacky, but it works :-P
-//   #define glDepthRange glDepthRangef
-// #else // desktop GL3
-//   #include "../glad/include/glad/glad.h"
-// #endif
-
-#endif
+#include "rsx/gcm_sys.h"
+#include "rsx/rsx.h"
 
 #include "../../ref_shared.h"
 
@@ -73,19 +48,41 @@
 #define STUB_ONCE(msg)
 #endif
 
-// a wrapper around glVertexAttribPointer() to stay sane
-// (caller doesn't have to cast to GLintptr and then void*)
-// static inline void
-// qglVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, GLintptr offset)
-// {
-// 	glVertexAttribPointer(index, size, type, normalized, stride, (const void*)offset);
-// }
+// Credit to @rexim for to this handy macros
+#define NOT_IMPLEMENTED() Com_Printf("ref_rsx::%s NOT IMPLEMENTED\n", __func__)
+#define NOT_IMPLEMENTED_TEXT(str) Com_Printf("ref_rsx::%s NOT IMPLEMENTED: %s\n", __func__, str);
 
-// static inline void
-// qglVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset)
-// {
-// 	glVertexAttribIPointer(index, size, type, stride, (void*)offset);
-// }
+// RSX NOTE: I use this macros to truck if I miss to free rsxMemaligned memory
+// In future they can be easily replaced with their non _with_log counterparts
+
+extern void *last_rsxMemalign_ptr;
+extern void *rsxMemalignUtil(uint32_t alignment, uint32_t size);
+
+// Never put this macro in parentheses for type casting
+#define rsxMemalign_with_log(alignment, size)                                  \
+    rsxMemalignUtil(alignment, size);                                          \
+    Com_DPrintf("function '%s' called for rsxMemalgin(%d, %d):\n",             \
+        __func__, alignment, (unsigned int)(size));                            \
+    if (last_rsxMemalign_ptr != NULL)                                          \
+    {                                                                          \
+        Com_DPrintf("    Successful!\n");                                      \
+        Com_DPrintf("    Address: %p\n", last_rsxMemalign_ptr);                \
+    }                                                                          \
+    else                                                                       \
+    {                                                                          \
+        Com_DPrintf("    Failed!\n");                                          \
+    }                                                                          \
+
+#define rsxFree_with_log(ptr) do {                                             \
+    Com_DPrintf("function '%s' called for rsxFree(%p):\n",                     \
+        __func__, ptr);                                                        \
+    rsxFree(ptr);                                                              \
+	Com_DPrintf("    Successful!\n");                                          \
+} while (0)
+
+
+// It's mostly temporary stab to remove OpenGL related things
+#define GLuint uint32_t
 
 // attribute locations for vertex shaders
 enum {
@@ -96,13 +93,6 @@ enum {
 	GL3_ATTRIB_NORMAL     = 4, // vertex normal
 	GL3_ATTRIB_LIGHTFLAGS = 5  // uint, each set bit means "dyn light i affects this surface"
 };
-
-// always using RGBA now, GLES3 on RPi4 doesn't work otherwise
-// and I think all modern GPUs prefer 4byte pixels over 3bytes
-// static const int gl3_solid_format = GL_RGBA;
-// static const int gl3_alpha_format = GL_RGBA;
-// static const int gl3_tex_solid_format = GL_RGBA;
-// static const int gl3_tex_alpha_format = GL_RGBA;
 
 extern unsigned gl3_rawpalette[256];
 extern unsigned d_8to24table[256];
@@ -130,13 +120,150 @@ typedef struct
 	float max_anisotropy;
 } gl3config_t;
 
-// typedef struct
-// {
-// 	GLuint shaderProgram;
-// 	GLint uniVblend;
-// 	GLint uniLmScalesOrTime; // for 3D it's lmScales, for 2D underwater PP it's time
-// 	hmm_vec4 lmScales[4];
-// } gl3ShaderInfo_t;
+typedef struct
+{
+	GLuint shaderProgram;
+	int32_t uniVblend;
+	int32_t uniLmScalesOrTime; // for 3D it's lmScales, for 2D underwater PP it's time
+	hmm_vec4 lmScales[4];
+} gl3ShaderInfo_t;
+
+// ------------------------------------------------------------------------------
+// Following RSX_Shader_* structs used do describe any shader
+// ------------------------------------------------------------------------------
+
+// NOTE: State structs not all (mostly not) in use,
+// some matrix comparsions not necessary though 
+
+// per shader analog of gl3UniCommon_t
+typedef struct {
+	float gamma;
+	float intensity;
+	float intensity2D; // for HUD, menus etc
+	hmm_vec4 color;
+} R_RSX_Shaders_commonState_t;
+
+// per shader analog of gl3Uni2D_t
+typedef struct {
+	hmm_mat4 transMat;
+} R_RSX_Shaders_uni2DState_t;
+
+// As you can see there is no analog of gl3Uni3D_t because comparing it painfull 
+// and not working good
+
+// lm scales state store inside this handy struct not in root of shader
+typedef struct {
+	hmm_vec4 lmScales[4];
+} R_RSX_Shaders_miscState_t;
+
+// this is huge universal structure to store all possible shader states
+typedef struct {
+
+	R_RSX_Shaders_commonState_t common;
+	R_RSX_Shaders_uni2DState_t uni2D;
+	R_RSX_Shaders_miscState_t uniMisc;
+
+} R_RSX_Shaders_universalState_t;
+
+// All *Binds structures stores posible pointers to shaders uniforms 
+
+// uniCommon consts pointers
+typedef struct {
+
+	rsxProgramConst *gamma;
+	rsxProgramConst *intensity;
+	rsxProgramConst *intensity2D;
+	rsxProgramConst *color;
+
+}  R_RSX_Shaders_commonBinds_t;
+
+// uni2D consts pointers
+typedef struct {
+
+	rsxProgramConst *transMat;
+
+} R_RSX_Shaders_uni2DBinds_t;
+
+// uni3D consts pointers
+typedef struct {
+
+	rsxProgramConst *transProjView; // gl3state.projMat3D * gl3state.viewMat3D - so we don't have to do this in the shader
+	rsxProgramConst *transModel;
+
+	rsxProgramConst *scroll; // for SURF_FLOWING
+	rsxProgramConst *time; // for warping surfaces like water & possibly other things
+	rsxProgramConst *alpha; // for translucent surfaces (water, glass, ..)
+	rsxProgramConst *overbrightbits; // gl3_overbrightbits, applied to lightmaps (and elsewhere to models)
+	rsxProgramConst *particleFadeFactor; // gl3_particle_fade_factor, higher => less fading out towards edges
+
+} R_RSX_Shaders_uni3DBinds_t;
+
+// unique consts pointers - used by small amount of shaders 
+typedef struct {
+
+	rsxProgramConst *screenRes;
+	rsxProgramConst *lmScales[4]; // MAX_LIGHTMAPS_PER_SURFACE == 4
+	struct {
+		rsxProgramConst* pos;
+		rsxProgramConst* color;
+		rsxProgramConst* intensity;
+	} dlights[32];
+
+} R_RSX_Shaders_miscBinds_t;
+
+// this huge universal structure to store all possible shader binds
+typedef struct {
+
+	R_RSX_Shaders_uni2DBinds_t uni2D;
+	R_RSX_Shaders_uni3DBinds_t uni3D;
+	R_RSX_Shaders_commonBinds_t uniCommon;
+	R_RSX_Shaders_miscBinds_t uniMisc;
+
+} R_RSX_Shaders_universalBinds_t;
+
+// as both kinds of shaders wrapped in one structure type
+// specific to kind data can be stored together in singe union
+
+typedef struct {
+	void *vp_ucode;
+	rsxVertexProgram *vpo;
+	uint32_t* _padding0;
+	uint32_t _padding1;
+} R_RSX_Shaders_vertexDescription_t;
+
+typedef struct {
+	void *fp_ucode;
+	rsxFragmentProgram *fpo;
+	uint32_t* fp_buffer;
+	uint32_t fp_offset;
+} R_RSX_Shaders_fragmentDescription_t;
+
+#define R_RSX_SHADER_TYPE_VERTEX 1
+#define R_RSX_SHADER_TYPE_FRAGMENT 2
+
+typedef struct {
+
+	// flag to store type of shader
+	// Posible values:
+	// 	R_RSX_SHADER_TYPE_VERTEX
+	// 	R_RSX_SHADER_TYPE_FRAGMENT
+	uint32_t type;
+
+	// union in which store type specific data
+	union {
+		R_RSX_Shaders_vertexDescription_t vertex;
+		R_RSX_Shaders_fragmentDescription_t fragment;
+	} description;
+
+	// shader binds to uniforms
+	R_RSX_Shaders_universalBinds_t binds;
+
+	// shader uniforms's state 
+	R_RSX_Shaders_universalState_t state;
+
+} R_RSX_Shaders_universalWrapper_t;
+
+// ------------------------------------------------------------------------------
 
 typedef struct
 {
@@ -167,25 +294,23 @@ typedef struct
 	float overbrightbits; // gl3_overbrightbits, applied to lightmaps (and elsewhere to models)
 	float particleFadeFactor; // gl3_particle_fade_factor, higher => less fading out towards edges
 
-		float _padding[3]; // again, some padding to ensure this has right size
+	float _padding[3]; // again, some padding to ensure this has right size
 } gl3Uni3D_t;
 
 extern const hmm_mat4 gl3_identityMat4;
 
-// typedef struct
-// {
-// 	vec3_t origin;
-// 	GLfloat _padding;
-// 	vec3_t color;
-// 	GLfloat intensity;
-// } gl3UniDynLight;
+typedef struct
+{
+	vec3_t origin;
+	vec3_t color;
+	float intensity;
+} gl3UniDynLight;
 
-// typedef struct
-// {
-// 	gl3UniDynLight dynLights[MAX_DLIGHTS];
-// 	GLuint numDynLights;
-// 	GLfloat _padding[3];
-// } gl3UniLights_t;
+typedef struct
+{
+	gl3UniDynLight dynLights[MAX_DLIGHTS];
+	GLuint numDynLights;
+} gl3UniLights_t;
 
 enum {
 	// width and height used to be 128, so now we should be able to get the same lightmap data
@@ -196,6 +321,31 @@ enum {
 	MAX_LIGHTMAPS = 4,
 	MAX_LIGHTMAPS_PER_SURFACE = MAXLIGHTMAPS // 4
 };
+
+/* NOTE: struct image_s* is what re.RegisterSkin() etc return so no gl3image_s!
+ *       (I think the client only passes the pointer around and doesn't know the
+ *        definition of this struct, so this being different from struct image_s
+ *        in ref_gl should be ok)
+ */
+typedef struct image_s
+{
+	char name[MAX_QPATH];               /* game path, including extension */
+	imagetype_t type;
+	int width, height;                  /* source image */
+	//int upload_width, upload_height;    /* after power of two and picmip */
+	int registration_sequence;          /* 0 = free */
+	struct msurface_s *texturechain;    /* for sort-by-texture world drawing */
+	GLuint texnum;                      /* gl texture binding */
+	float sl, tl, sh, th;               /* 0,0 - 1,1 unless part of the scrap */
+	// qboolean scrap; // currently unused
+	qboolean has_alpha;
+
+	qboolean is_mipmap;
+	qboolean nolerp;
+
+	gcmTexture gcm_texture;
+	byte* data_ptr;
+} gl3image_t;
 
 typedef struct
 {
@@ -209,7 +359,7 @@ typedef struct
 	// most surfaces only have one really and the remaining for are filled with dummy data
 	GLuint lightmap_textureIDs[MAX_LIGHTMAPS][MAX_LIGHTMAPS_PER_SURFACE]; // instead of lightmap_textures+i use lightmap_textureIDs[i]
 
-	GLuint currenttexture; // bound to GL_TEXTURE0
+	gl3image_t* currenttexture; // bound to GL_TEXTURE0
 	int currentlightmap; // lightmap_textureIDs[currentlightmap] bound to GL_TEXTURE1
 	GLuint currenttmu; // GL_TEXTURE0 or GL_TEXTURE1
 
@@ -228,6 +378,51 @@ typedef struct
 	GLuint currentEBO;
 	GLuint currentShaderProgram;
 	GLuint currentUBO;
+
+	// Vertex shaders
+
+	// Vertex Shader 2D Color
+	R_RSX_Shaders_universalWrapper_t vs2DColor;
+	// Vertex Shader 2D Texture
+	R_RSX_Shaders_universalWrapper_t vs2DTexture;
+	// Vertex Shader 3D
+	R_RSX_Shaders_universalWrapper_t vs3D;
+	// Vertex Shader 3D Flow
+	R_RSX_Shaders_universalWrapper_t vs3DFlow;
+	// Vertex Shader 3D Lightmap
+	R_RSX_Shaders_universalWrapper_t vs3Dlm;
+	// Vertex Shader 3D Lightmap Flow
+	R_RSX_Shaders_universalWrapper_t vs3DlmFlow;
+	// Vertex Shader 3D Alias
+	R_RSX_Shaders_universalWrapper_t vs3Dalias;
+	// Vertex Shader Particle
+	R_RSX_Shaders_universalWrapper_t vsParticle;
+
+	// Fragment shaders
+
+	// Fragment Shader 2D Color (Flashes, menu background tint)
+	R_RSX_Shaders_universalWrapper_t fs2DColor;
+	// Fragment Shader 2D Texture (UI, ?videos?)
+	R_RSX_Shaders_universalWrapper_t fs2DTexture;
+	// Fragment Shader 3D (alpha surfaces)
+	R_RSX_Shaders_universalWrapper_t fs3D;
+	// Fragment Shader 3D Color (null model, beams/lasers)
+	R_RSX_Shaders_universalWrapper_t fs3Dcolor;
+	// Fragment Shader 3D Sky
+	R_RSX_Shaders_universalWrapper_t fs3Dsky;
+	// Fragment Shader 3D Ligtmap
+	R_RSX_Shaders_universalWrapper_t fs3Dlm;
+	// Fragment Shader 3D Alias
+	R_RSX_Shaders_universalWrapper_t fs3Dalias;
+	// Fragment Shader 3D Alias Color
+	R_RSX_Shaders_universalWrapper_t fs3DaliasColor;
+	// Fragment Shader 3D Water
+	R_RSX_Shaders_universalWrapper_t fs3Dwater;
+	// Fragment Shader Particle Square (simple squared particles)
+	R_RSX_Shaders_universalWrapper_t fsParticleSquare;
+	// Fragment Shader Particle (nice paricles)
+	R_RSX_Shaders_universalWrapper_t fsParticle;
+
 
 	// NOTE: make sure si2D is always the first shaderInfo (or adapt GL3_ShutdownShaders())
 	// gl3ShaderInfo_t si2D;      // shader for rendering 2D with textures
@@ -258,6 +453,10 @@ typedef struct
 	int vbo3Dsize;
 	int vbo3DcurOffset;
 
+	byte* rsx_vertex_buffer;
+	uint32_t rsx_vertex_buffer_size;
+	uint32_t rsx_vertex_buffer_offset;
+
 	GLuint vaoAlias, vboAlias, eboAlias; // for models, using 9 floats as (x,y,z, s,t, r,g,b,a)
 	GLuint vaoParticle, vboParticle; // for particles, using 9 floats (x,y,z, size,distance, r,g,b,a)
 
@@ -265,7 +464,7 @@ typedef struct
 	gl3UniCommon_t uniCommonData;
 	gl3Uni2D_t uni2DData;
 	gl3Uni3D_t uni3DData;
-	// gl3UniLights_t uniLightsData;
+	gl3UniLights_t uniLightsData;
 	GLuint uniCommonUBO;
 	GLuint uni2DUBO;
 	GLuint uni3DUBO;
@@ -273,6 +472,8 @@ typedef struct
 
 	hmm_mat4 projMat3D;
 	hmm_mat4 viewMat3D;
+
+	uint32_t anisotropic;
 } gl3state_t;
 
 extern gl3config_t gl3config;
@@ -289,27 +490,7 @@ extern int gl3_viewcluster, gl3_viewcluster2, gl3_oldviewcluster, gl3_oldviewclu
 
 extern int c_brush_polys, c_alias_polys;
 
-/* NOTE: struct image_s* is what re.RegisterSkin() etc return so no gl3image_s!
- *       (I think the client only passes the pointer around and doesn't know the
- *        definition of this struct, so this being different from struct image_s
- *        in ref_gl should be ok)
- */
-typedef struct image_s
-{
-	char name[MAX_QPATH];               /* game path, including extension */
-	imagetype_t type;
-	int width, height;                  /* source image */
-	//int upload_width, upload_height;    /* after power of two and picmip */
-	int registration_sequence;          /* 0 = free */
-	struct msurface_s *texturechain;    /* for sort-by-texture world drawing */
-	GLuint texnum;                      /* gl texture binding */
-	float sl, tl, sh, th;               /* 0,0 - 1,1 unless part of the scrap */
-	// qboolean scrap; // currently unused
-	qboolean has_alpha;
-
-} gl3image_t;
-
-enum {MAX_GL3TEXTURES = 1024};
+enum {MAX_RSX_TEXTURES = 1024};
 
 // include this down here so it can use gl3image_t
 #include "model.h"
@@ -317,7 +498,7 @@ enum {MAX_GL3TEXTURES = 1024};
 typedef struct
 {
 	int internal_format;
-	int current_lightmap_texture; // index into gl3state.lightmap_textureIDs[]
+	int current_lightmap_set; // index into gl3state.lightmap_textureIDs[]
 
 	//msurface_t *lightmap_surfaces[MAX_LIGHTMAPS]; - no more lightmap chains, lightmaps are rendered multitextured
 
@@ -325,7 +506,17 @@ typedef struct
 
 	/* the lightmap texture data needs to be kept in
 	   main memory so texsubimage can update properly */
-	byte lightmap_buffers[MAX_LIGHTMAPS_PER_SURFACE][4 * BLOCK_WIDTH * BLOCK_HEIGHT];
+	// byte lightmap_buffers[MAX_LIGHTMAPS_PER_SURFACE][4 * BLOCK_WIDTH * BLOCK_HEIGHT];
+
+	/* With PS3 we had shared memory.
+	 * So lightmaps data during generation already at RSX's memory.
+	 * And there is no need in lightmap_buffers in static memory.
+	 * Instead of uploading block we just switching to the next.
+	 * By the way, 'upload'(R_RSX_LM_moveToNextSet) still can be
+	 * used to bind textures to their buffers but it can be done at
+	 * any point after lightmap buffers allocated in RSX's memory. */
+	void *lightmap_buffers_ptr[MAX_LIGHTMAPS][MAX_LIGHTMAPS_PER_SURFACE];
+	gcmTexture lightmap_textures[MAX_LIGHTMAPS][MAX_LIGHTMAPS_PER_SURFACE];
 } gl3lightmapstate_t;
 
 extern gl3model_t *gl3_worldmodel;
@@ -336,8 +527,8 @@ extern cplane_t frustum[4];
 
 extern vec3_t gl3_origin;
 
-extern gl3image_t *gl3_notexture; /* use for bad textures */
-extern gl3image_t *gl3_particletexture; /* little dot for particles */
+extern gl3image_t *rsx_no_texture; /* use for bad textures */
+extern gl3image_t *rsx_particle_texture; /* little dot for particles */
 
 extern int gl_filter_min;
 extern int gl_filter_max;
@@ -382,129 +573,136 @@ extern int gl_filter_max;
 // 	}
 // }
 
-// extern void GL3_BufferAndDraw3D(const gl3_3D_vtx_t* verts, int numVerts, GLenum drawMode);
-
-extern qboolean GL3_CullBox(vec3_t mins, vec3_t maxs);
-extern void GL3_RotateForEntity(entity_t *e);
-
 // rsx_main.c TODO: Separate
-extern int rsx_init_context(void* win);
-extern int rsx_prepare_for_window(void);
-extern qboolean rsx_is_vsync_active(void);
-extern void rsx_end_frame(void);
-extern void GL3_SetVsync(void);
-extern void GL3_ShutdownContext(void);
+extern gcmContextData* gcmContext;
 
-// gl3_misc.c
-extern void GL3_InitParticleTexture(void);
-extern void GL3_ScreenShot(void);
-extern void GL3_SetDefaultState(void);
+extern void R_RSX_BufferAndDraw3D(const gl3_3D_vtx_t* verts, int numVerts, uint32_t drawMode);
+extern void R_RSX_RotateForEntity(entity_t *e);
+
+// rsx_misc.c
+extern void R_RSX_InitParticleTexture(void);
+extern void R_RSX_InitNoTexture(void);
+extern void R_RSX_ScreenShot(void);
+// extern void GL3_SetDefaultState(void);
 
 // rsx_model.c
 extern int registration_sequence;
-extern void GL3_Mod_Init(void);
-extern void GL3_Mod_FreeAll(void);
-extern void rsx_begin_registration(char *model);
-extern struct model_s * rsx_register_model(char *name);
-extern void rsx_end_registration(void);
-extern void GL3_Mod_Modellist_f(void);
-extern const byte* GL3_Mod_ClusterPVS(int cluster, const gl3model_t *model);
-extern mleaf_t* GL3_Mod_PointInLeaf(vec3_t p, gl3model_t *model);
+extern void R_RSX_Mod_Init(void);
+extern void R_RSX_Mod_FreeAll(void);
+extern void R_RSX_Mod_BeginRegistration(char *model);
+extern struct model_s* R_RSX_Mod_RegisterModel(char *name);
+extern void R_RSX_Mod_EndRegistration(void);
+extern void R_RSX_Mod_Modellist_f(void);
+extern const byte* R_RSX_Mod_ClusterPVS(int cluster, const gl3model_t *model);
+extern mleaf_t* R_RSX_Mod_PointInLeaf(vec3_t p, gl3model_t *model);
 
 // rsx_draw.c
-extern void GL3_Draw_InitLocal(void);
-extern void GL3_Draw_ShutdownLocal(void);
-extern gl3image_t * rsx_draw_find_pic(char *name);
-extern void res_draw_get_pic_size(int *w, int *h, char *pic);
-extern int GL3_Draw_GetPalette(void);
+extern uint32_t used_vb2Ds;
 
-extern void rsx_draw_pic_scaled(int x, int y, char *pic, float factor);
-extern void rsx_draw_stretch_pic(int x, int y, int w, int h, char *pic);
-extern void rsx_draw_char_scaled(int x, int y, int num, float scale);
-extern void rsx_draw_tile_clear(int x, int y, int w, int h, char *pic);
-extern void GL3_DrawFrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4]);
-extern void rsx_draw_fill(int x, int y, int w, int h, int c);
-extern void rsx_draw_fade_screen(void);
-extern void rsx_draw_flash(const float color[4], float x, float y, float w, float h);
-extern void rsx_draw_stretch_raw(int x, int y, int w, int h, int cols, int rows, byte *data);
+extern void R_RSX_Draw_InitLocal(void);
+extern void R_RSX_Draw_ShutdownLocal(void);
+extern gl3image_t * R_RSX_Draw_FindPic(char *name);
+extern void R_RSX_Draw_GetPicSize(int *w, int *h, char *pic);
+extern int R_RSX_Draw_GetPalette(void);
 
-// gl3_image.c
+extern void R_RSX_Draw_PicScaled(int x, int y, char *pic, float factor);
+extern void R_RSX_Draw_StretchPic(int x, int y, int w, int h, char *pic);
+extern void R_RSX_Draw_CharScaled(int x, int y, int num, float scale);
+extern void R_RSX_Draw_TileClear(int x, int y, int w, int h, char *pic);
+extern void R_RSX_Draw_FrameBufferObject(int x, int y, int w, int h, GLuint fboTexture, const float v_blend[4]);
+extern void R_RSX_Draw_Fill(int x, int y, int w, int h, int c);
+extern void R_RSX_Draw_FadeScreen(void);
+extern void R_RSX_Draw_Flash(const float color[4], float x, float y, float w, float h);
+extern void R_RSX_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, byte *data);
 
-// static inline void
-// GL3_SelectTMU(GLenum tmu)
-// {
-// 	if(gl3state.currenttmu != tmu)
-// 	{
-// 		glActiveTexture(tmu);
-// 		gl3state.currenttmu = tmu;
-// 	}
-// }
+// rsx_image.c
+extern void R_RSX_Image_Init(void);
+extern void R_RSX_Image_Shutdown(void);
 
-extern void GL3_TextureMode(char *string);
-extern void GL3_Bind(GLuint texnum);
-extern void GL3_BindLightmap(int lightmapnum);
-extern gl3image_t *GL3_LoadPic(char *name, byte *pic, int width, int realwidth,
-                               int height, int realheight, imagetype_t type, int bits);
-extern gl3image_t *rsx_find_image(char *name, imagetype_t type);
-extern gl3image_t *rsx_register_skin(char *name);
-extern void GL3_ShutdownImages(void);
-extern void GL3_FreeUnusedImages(void);
-extern qboolean GL3_ImageHasFreeSpace(void);
-extern void GL3_ImageList_f(void);
+extern gl3image_t rsx_textures[MAX_RSX_TEXTURES];
+
+// extern void GL3_TextureMode(char *string);
+extern void R_RSX_Image_BindUni2DTex0(gl3image_t *texture);
+
+extern gl3image_t *R_RSX_Image_LoadPic(char *name, byte *pic, int width, int realwidth,
+                                       int height, int realheight, imagetype_t type, int bits);
+extern gl3image_t *R_RSX_Image_FindImage(char *name, imagetype_t type);
+extern gl3image_t *R_RSX_Image_RegisterSkin(char *name);
+extern void R_RSX_Image_Shutdown(void);
+extern void R_RSX_Image_FreeUnusedImages(void);
+extern qboolean R_RSX_Image_HasFreeSpace(void);
+extern void R_RSX_Image_ImageList_f(void);
 
 // gl3_light.c
-extern void GL3_MarkLights(dlight_t *light, int bit, mnode_t *node);
-extern void GL3_PushDlights(void);
-extern void GL3_LightPoint(entity_t *currententity, vec3_t p, vec3_t color);
-extern void GL3_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride);
+extern void R_RSX_Light_Init(void);
+extern void R_RSX_Light_Shutdown(void);
 
-// gl3_lightmap.c
-#define GL_LIGHTMAP_FORMAT GL_RGBA
+extern void R_RSX_Light_MarkLights(dlight_t *light, int bit, mnode_t *node);
+extern void R_RSX_Light_PushDynLights(void);
+extern void R_RSX_Light_LightPoint(entity_t *currententity, vec3_t p, vec3_t color);
+extern void R_RSX_Light_BuildLightMap(msurface_t *surf, int offsetInLMbuf, int stride);
 
-extern void GL3_LM_InitBlock(void);
-extern void GL3_LM_UploadBlock(void);
-extern qboolean GL3_LM_AllocBlock(int w, int h, int *x, int *y);
-extern void GL3_LM_BuildPolygonFromSurface(gl3model_t *currentmodel, msurface_t *fa);
-extern void GL3_LM_CreateSurfaceLightmap(msurface_t *surf);
-extern void GL3_LM_BeginBuildingLightmaps(gl3model_t *m);
-extern void GL3_LM_EndBuildingLightmaps(void);
+// rsx_lightmap.c
+#define LIGHTMAP_FORMAT 0
 
-// gl3_warp.c
-extern void GL3_EmitWaterPolys(msurface_t *fa);
-extern void GL3_SubdivideSurface(msurface_t *fa, gl3model_t* loadmodel);
+extern void R_RSX_LM_Init(void);
+extern void R_RSX_LM_Shutdown(void);
 
-extern void rsx_set_sky(char *name, float rotate, vec3_t axis);
-extern void GL3_DrawSkyBox(void);
-extern void GL3_ClearSkyBox(void);
-extern void GL3_AddSkySurface(msurface_t *fa);
+extern void R_RSX_LM_SetLightMapSet(uint32_t lightmapnum);
+
+extern void R_RSX_LM_BuildPolygonFromSurface(gl3model_t *currentmodel, msurface_t *fa);
+extern void R_RSX_LM_CreateSurfaceLightmap(msurface_t *surf);
+extern void R_RSX_LM_BeginBuildingLightmaps(gl3model_t *m);
+extern void R_RSX_LM_EndBuildingLightmaps(void);
+
+// rsx_warp.c
+extern void R_RSX_Warp_EmitWaterPolys(msurface_t *fa);
+extern void R_RSX_Warp_SubdivideSurface(msurface_t *fa, gl3model_t* loadmodel);
+
+extern void R_RSX_Warp_SetSky(char *name, float rotate, vec3_t axis);
+extern void R_RSX_Warp_DrawSkyBox(void);
+extern void R_RSX_Warp_ClearSkyBox(void);
+extern void R_RSX_Warp_AddSkySurface(msurface_t *fa);
 
 
-// gl3_surf.c
-extern void GL3_SurfInit(void);
-extern void GL3_SurfShutdown(void);
-extern void GL3_DrawGLPoly(msurface_t *fa);
-extern void GL3_DrawGLFlowingPoly(msurface_t *fa);
-extern void GL3_DrawTriangleOutlines(void);
-extern void GL3_DrawAlphaSurfaces(void);
-extern void GL3_DrawBrushModel(entity_t *e, gl3model_t *currentmodel);
-extern void GL3_DrawWorld(void);
-extern void GL3_MarkLeaves(void);
+// rsx_surf.c
+extern void R_RSX_Surf_Init(void);
+extern void R_RSX_Surf_Shutdown(void);
+// extern void R_RSX_Surf_drawPoly(msurface_t *fa);
+// extern void R_RSX_Surf_drawFlowingPoly(msurface_t *fa);
+// extern void R_RSX_Surf_drawTriangleOutlines(void); /* not implemented in Yamagi's GL3 renderer */
+extern void R_RSX_Surf_DrawAlphaSurfaces(void);
+extern void R_RSX_Surf_DrawBrushModel(entity_t *e, gl3model_t *currentmodel);
+extern void R_RSX_Surf_DrawWorld(void);
+extern void R_RSX_Surf_MarkLeaves(void);
 
-// gl3_mesh.c
-extern void GL3_DrawAliasModel(entity_t *e);
-extern void GL3_ResetShadowAliasModels(void);
-extern void GL3_DrawAliasShadows(void);
-extern void GL3_ShutdownMeshes(void);
+// rsx_mesh.c
+extern void R_RSX_Mesh_DrawAliasModel(entity_t *e);
+// extern void GL3_ResetShadowAliasModels(void);
+extern void R_RSX_Mesh_ResetShadowAliasModels(void);
+// extern void GL3_DrawAliasShadows(void);
+extern void R_RSX_Mesh_DrawAliasShadows(void);
+// extern void GL3_ShutdownMeshes(void);
+extern void R_RSX_Mesh_Shutown(void);
 
-// gl3_shaders.c
+// rsx_shaders.c
 
-extern qboolean GL3_RecreateShaders(void);
-extern qboolean GL3_InitShaders(void);
-extern void GL3_ShutdownShaders(void);
-extern void GL3_UpdateUBOCommon(void);
-extern void GL3_UpdateUBO2D(void);
-extern void GL3_UpdateUBO3D(void);
-extern void GL3_UpdateUBOLights(void);
+// extern qboolean GL3_RecreateShaders(void);
+extern qboolean R_RSX_Shaders_Init(void);
+extern void R_RSX_Shaders_Shutdown(void);
+// extern void GL3_UpdateUBOCommon(void);
+extern void R_RSX_Shaders_UpdateUniCommonData(void);
+// extern void GL3_UpdateUBO2D(void);
+extern void R_RSX_Shaders_UpdateUni2DData(void);
+// extern void GL3_UpdateUBO3D(void);
+extern void R_RSX_Shaders_UpdateUni3DData(void);
+extern void R_RSX_Shaders_UpdateScreenResolution(void);
+// extern void GL3_UpdateUBOLights(void);
+extern void R_RSX_Shaders_UpdateDynLights(void);
+extern void R_RSX_Shaders_SetTexture0(gl3image_t *texture);
+extern void R_RSX_Shaders_UpdateLmScales(const hmm_vec4 lmScales[MAX_LIGHTMAPS_PER_SURFACE]);
+
+extern void R_RSX_Shaders_Load(const R_RSX_Shaders_universalWrapper_t* shader);
 
 // ############ Cvars ###########
 
@@ -554,4 +752,4 @@ extern cvar_t *r_fixsurfsky;
 
 extern cvar_t *gl3_debugcontext;
 
-#endif /* SRC_CLIENT_REFRESH_GL3_HEADER_LOCAL_H_ */
+#endif /* SRC_CLIENT_REFRESH_RSX_HEADER_LOCAL_H_ */

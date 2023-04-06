@@ -1,0 +1,18 @@
+void main
+(
+    uniform float alpha,
+    uniform float gamma,
+    // uniform float intensity,
+
+    uniform float4 color,
+
+    out float4 oColor
+)
+{
+    float4 texel = color;
+
+    // apply gamma correction and intensity
+    // texel.rgb *= intensity; TODO: use intensity here? (this is used for beams)
+    oColor.rgb = pow(texel.rgb, float3(gamma));
+    oColor.a = texel.a * alpha; // I think alpha shouldn't be modified by gamma and intensity
+}

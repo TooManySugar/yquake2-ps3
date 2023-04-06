@@ -7,8 +7,6 @@ ifeq ($(strip $(PSL1GHT)),)
 $(error "Please set PSL1GHT in your environment. export PSL1GHT=<path>")
 endif
 
-include $(PSL1GHT)/ppu_rules
-
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output
 # BUILD is the directory where object files & intermediate files will be placed
@@ -16,7 +14,13 @@ include $(PSL1GHT)/ppu_rules
 # INCLUDES is a list of directories containing extra header files
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
-BUILD		:=	build
+BUILD		:=	build_ps3
+
+SHADERS		:=	src/client/refresh/ref_rsx/shaders/
+
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+
+include $(PSL1GHT)/ppu_rules
 
 #---------------------------------------------------------------------------------
 # C source files
@@ -134,8 +138,16 @@ CSOURCES	+=	\
 				src/client/refresh/files/wal.c \
 				src/client/refresh/files/stb.c \
 				src/client/refresh/files/pvs.c \
+				src/client/refresh/ref_rsx/rsx_misc.c \
 				src/client/refresh/ref_rsx/rsx_warp.c \
+				src/client/refresh/ref_rsx/rsx_surf.c \
+				src/client/refresh/ref_rsx/rsx_light.c \
+				src/client/refresh/ref_rsx/rsx_lightmap.c \
+				src/client/refresh/ref_rsx/rsx_model_md2.c \
+				src/client/refresh/ref_rsx/rsx_model_sp2.c \
 				src/client/refresh/ref_rsx/rsx_model.c \
+				src/client/refresh/ref_rsx/rsx_mesh.c \
+				src/client/refresh/ref_rsx/rsx_shaders.c \
 				src/client/refresh/ref_rsx/rsx_draw.c \
 				src/client/refresh/ref_rsx/rsx_image.c \
 				src/client/refresh/ref_rsx/rsx_main.c
@@ -186,16 +198,17 @@ SOURCES		:=
 DATA		:=	data
 INCLUDES	:=	$(PS3DEV)/portlibs/ppu/include
 
-TITLE		:=	RSXGL Sample 02
-APPID		:=	rsxglsa2
+TITLE		:=	Quake 2
+APPID		:=	QUAKE2
 CONTENTID	:=	UP0001-$(APPID)_00-0000000000000000
+SFOXML      :=  misc/sfo.xml
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 
 #CFLAGS		=	-O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -D__RSX__ -DEIGEN2_SUPPORT
-CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -D__PSL1GHT__ -DIOAPI_NO_64 -DYQ2OSTYPE=\"GameOS\" -DYQ2ARCH=\"PS3\" -DUNICORE -I/opt/X11/include
+CFLAGS = -O2 -Wall -mcpu=cell $(MACHDEP) $(INCLUDE) -D__PSL1GHT__ -DIOAPI_NO_64 -DYQ2OSTYPE=\"GameOS\" -DYQ2ARCH=\"PS3\" -DUNICORE -DTRACK_HUNK -I/opt/X11/include
 
 #CXXFLAGS	=	$(CFLAGS)
 CXXFLAGS = $(CFLAGS) -std=c++11 
@@ -213,18 +226,12 @@ LIBS	:=	-lrsx -lgcm_sys -lnet -lio -lsysutil -lsysmodule -lrt -llv2 -laudio -lm
 #---------------------------------------------------------------------------------
 LIBDIRS	:= $(PORTLIBS) #/usr/local/ps3dev/ppu/lib
 
-#---------------------------------------------------------------------------------
-# no real need to edit anything past this point unless you need to add additional
-# rules for different file extensions
-#---------------------------------------------------------------------------------
-ifneq ($(BUILD),$(notdir $(CURDIR)))
-#---------------------------------------------------------------------------------
-
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
 
 export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 					$(foreach dir,$(DATA),$(CURDIR)/$(dir)) \
-					$(foreach cfile, $(CSOURCES), $(CURDIR)/$(dir $(cfile)))
+					$(foreach cfile, $(CSOURCES), $(CURDIR)/$(dir $(cfile))) \
+					$(foreach dir,$(SHADERS),$(CURDIR)/$(dir))
 
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
@@ -233,12 +240,18 @@ export BUILDDIR	:=	$(CURDIR)/$(BUILD)
 #---------------------------------------------------------------------------------
 # automatically build a list of object files for our project
 #---------------------------------------------------------------------------------
-CFILES		:=	$(foreach cfile, $(CSOURCES), $(notdir $(cfile)))
+CFILES		:=	$(foreach cfile, $(CSOURCES), $(subst src/, ,$(cfile)))
 
 CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
 sFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.S)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+
+VCGFILES	:=	$(foreach dir,$(SHADERS),$(notdir $(wildcard $(dir)/*.vcg)))
+FCGFILES	:=	$(foreach dir,$(SHADERS),$(notdir $(wildcard $(dir)/*.fcg)))
+
+VPOFILES	:=	$(VCGFILES:.vcg=.vpo)
+FPOFILES	:=	$(FCGFILES:.fcg=.fpo)
 
 #---------------------------------------------------------------------------------
 # use CXX for linking C++ projects, CC for standard C
@@ -249,9 +262,15 @@ else
 	export LD	:=	$(CXX)
 endif
 
-export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
-					$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) \
-					$(sFILES:.s=.o) $(SFILES:.S=.o)
+export OFILES	:=	$(foreach ofile, \
+						$(addsuffix .o,$(BINFILES)) \
+						$(foreach vpofile,$(VPOFILES), shaders/vpo/$(vpofile).o) \
+					 	$(foreach fpofile,$(FPOFILES), shaders/fpo/$(fpofile).o) \
+					 	$(sFILES:.s=.o) $(SFILES:.S=.o) \
+					 	$(CFILES:.c=.o), \
+						$(BUILD)/$(ofile))
+
+
 
 #---------------------------------------------------------------------------------
 # build a list of include paths
@@ -268,34 +287,15 @@ export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
 					$(LIBPSL1GHT_LIB) -L$(PORTLIBS)/lib
 
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
+
 .PHONY: $(BUILD) clean
-
-#---------------------------------------------------------------------------------
-$(BUILD):
-	@[ -d $@ ] || mkdir -p $@
-	#@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile.ps3
-	@$(MAKE) -C $(BUILD) -f $(CURDIR)/Makefile.ps3
-
-#---------------------------------------------------------------------------------
-clean:
-	@echo clean ...
-	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).self $(OUTPUT).fake.self
-
-#---------------------------------------------------------------------------------
-run:
-	ps3load $(OUTPUT).self
-
-
-#---------------------------------------------------------------------------------
-else
-
-DEPENDS	:=	$(OFILES:.o=.d)
 
 #---------------------------------------------------------------------------------
 # main targets
 #---------------------------------------------------------------------------------
+
 $(OUTPUT).self: $(OUTPUT).elf
-$(OUTPUT).elf:	$(OFILES)
+$(OUTPUT).elf: $(OFILES)
 
 #---------------------------------------------------------------------------------
 # This rule links in binary data with the .bin extension
@@ -307,6 +307,77 @@ $(OUTPUT).elf:	$(OFILES)
 
 -include $(DEPENDS)
 
-#---------------------------------------------------------------------------------
+$(BUILD)/%.o: src/%.c
+	$(VERB) echo $<
+	$(VERB) mkdir -p $(dir $@)
+	$(VERB) $(CC) $(DEPSOPT) $(CFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+define bin2o_shaders
+	$(VERB) bin2s -a 64 $< | $(AS) -o $(@)
+	$(VERB) mkdir -p $(SHADERS)/autogen_headers
+	$(VERB) echo "extern const u8" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(SHADERS)/autogen_headers/$(<F) | tr . _)`.h
+	$(VERB) echo "extern const u8" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(SHADERS)/autogen_headers/$(<F) | tr . _)`.h
+	$(VERB) echo "extern const u32" `(echo $(<F) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(SHADERS)/autogen_headers/$(<F) | tr . _)`.h
+endef
+
+%.vpo.o: %.vpo
+	$(VERB) echo $<
+	$(VERB) $(bin2o_shaders)
+
+%.fpo.o: %.fpo
+	$(VERB) echo $<
+	$(VERB) $(bin2o_shaders)
+
+$(BUILD)/shaders/vpo/%.vpo: src/client/refresh/ref_rsx/shaders/%.vcg
+	$(VERB) echo $<
+	$(VERB) mkdir -p $(dir $@)
+	$(VERB) $(CGCOMP) -v $(CGCFLAGS) $^ $@
+
+$(BUILD)/shaders/fpo/%.fpo: src/client/refresh/ref_rsx/shaders/%.fcg
+	$(VERB) echo $<
+	$(VERB) mkdir -p $(dir $@)
+	$(VERB) $(CGCOMP) -f $(CGCFLAGS) $^ $@
+
+prepbuild:
+	$(VERB) mkdir -p $(BUILD)
+
+#-------------------------------------------------------------------------------
+# git related stuff
+#-------------------------------------------------------------------------------
+GIT_REPO_COMMIT_HASH := $(shell git rev-parse --short HEAD)
+
+GIT_REPO_CHANGED := 
+ifneq ($(shell git status --porcelain | wc -l), 0)
+	GIT_REPO_CHANGED := _changed
 endif
+#-------------------------------------------------------------------------------
+
+# Sufix of prepkg file
+PORT_VERSION := $(GIT_REPO_COMMIT_HASH)$(GIT_REPO_CHANGED)
+
+$(OUTPUT)_prepkg_$(PORT_VERSION).zip: $(OUTPUT).self
+	$(VERB) echo building prepkg ... $(notdir $@)
+	$(VERB) rm -rf $(BUILD)/prepkg
+	$(VERB) cp -r prepkg -t $(BUILD)/
+	$(VERB) rm -f $(BUILD)/prepkg/README.md
+	$(VERB) echo $(PORT_VERSION) > $(BUILD)/prepkg/version
+	$(VERB) mkdir -p $(BUILDDIR)/prepkg/pkg/USRDIR
+	$(VERB) $(SELF_NPDRM) $(BUILDDIR)/$(basename $(notdir $<)).elf $(BUILDDIR)/prepkg/pkg/USRDIR/EBOOT.BIN $(CONTENTID) >> /dev/null
+	$(VERB) $(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILDDIR)/prepkg/pkg/PARAM.SFO
+	$(VERB) ( cd $(BUILD)/prepkg && zip -9r ../../$(notdir $@) . )
+
+# Create share ready pkg creating archive
+prepkg: $(OUTPUT)_prepkg_$(PORT_VERSION).zip
+
+pkg: $(OUTPUT).pkg
+
+#---------------------------------------------------------------------------------
+clean:
+	@echo clean ...
+	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).self $(OUTPUT).fake.self
+
+#---------------------------------------------------------------------------------
+run:
+	ps3load $(OUTPUT).self
+
 #---------------------------------------------------------------------------------

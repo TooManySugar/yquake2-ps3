@@ -1,0 +1,29 @@
+void main
+(
+    float2 inTexCord : TEXCOORD2, // passTexCoord
+
+    uniform float alpha,
+    uniform float gamma,
+    uniform float intensity,
+
+    uniform float time,
+    uniform float scroll,
+
+    uniform sampler2D texture,
+
+    out float4 oColor
+)
+{    
+    float2 tc = inTexCord;
+    tc.s += sin( inTexCord.t*0.125 + time ) * 4.0;
+    tc.s += scroll;
+    tc.t += sin( inTexCord.s*0.125 + time ) * 4.0;
+    tc *= 1.0/64.0; // do this last
+
+    float4 texel = tex2D(texture, tc);
+
+    // apply intensity and gamma
+    texel.rgb *= intensity *0.5;
+    oColor.rgb = pow(texel.rgb, float3(gamma));
+    oColor.a = texel.a * alpha; // I think alpha shouldn't be modified by gamma and intensity
+}

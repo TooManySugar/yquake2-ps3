@@ -1,0 +1,42 @@
+void main
+(
+    float2 inPos: WPOS,
+
+    float4 inColor : TEXCOORD0, // passColor
+    float2 inPointScreenPos : TEXCOORD1,
+    float  inPointSize : TEXCOORD2,
+
+    uniform float gamma,
+    uniform float particleFadeFactor,
+
+    out float4 oColor
+)
+{
+    // RSX NOTE:
+    // in cg shader language we dont have gl_PointCoord but we still
+    // can calculate distSquared from screen coordinates of 
+    // drawing point center pos, current pixel pos and point size
+    float screenCordDist = distance(inPos, inPointScreenPos);
+
+    float distSquared = screenCordDist / (inPointSize / 2);
+
+    if (distSquared > 1.0)
+    {
+        discard;
+    }
+
+    float4 texel = inColor;
+
+    // apply gamma correction and intensity
+    //texel.rgb *= intensity; TODO: intensity? Probably not?  
+    oColor.rgb = pow(texel.rgb, float3(gamma));
+
+    // I want the particles to fade out towards the edge, the following seems to look nice
+    // RSX NOTE: particleFadeFactor failed to pass normaly to shader on real PS3
+    // guarding it parentheses resolved problem. Maybe shader compiler error.
+    // texel.a = * min(1.0, particleFadeFactor*(1.0 + distSquared));
+    texel.a = min(1.0,  (particleFadeFactor * (1.0 - distSquared)));
+    
+
+    oColor.a = texel.a; // I think alpha shouldn't be modified by gamma and intensity
+}

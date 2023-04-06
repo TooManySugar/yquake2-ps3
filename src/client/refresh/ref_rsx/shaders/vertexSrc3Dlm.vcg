@@ -1,0 +1,33 @@
+void main
+(
+	float3 vertexPosition : POSITION,
+	float3 vertexNormal : NORMAL,
+	float2 vertexTexcoord : TEXCOORD0,
+	float2 vertexLmcoord : TEXCOORD1,
+	unsigned int vertexLightflags : TEXCOORD2,
+
+	uniform float4x4 transProjView,
+	uniform float4x4 transModel,
+
+	out float4 ePosition : POSITION, 	// gl_Position
+	out float3 oWorldcoord : TEXCOORD0,
+	out float3 oNormal : TEXCOORD1,
+	out float2 oTexcoord : TEXCOORD2, // passTexCoord
+	out float2 oLmcoord : TEXCOORD3, // passLMcoord
+	out unsigned int oLightflags : TEXCOORD4
+)
+{
+	// ePosition = mul(mul(transProjView, transModel), float4(vertexPosition, 1.0f));
+
+	oTexcoord = vertexTexcoord;
+	oLmcoord = vertexLmcoord;
+
+	float4 worldCoord = mul(transModel, float4(vertexPosition, 1.0f));
+	oWorldcoord = worldCoord.xyz;
+
+	float4 worldNormal = mul(transModel, float4(vertexNormal, 0.0f));
+	oNormal = normalize(worldNormal.xyz);
+	oLightflags = vertexLightflags;
+
+	ePosition = mul(transProjView, worldCoord);
+}

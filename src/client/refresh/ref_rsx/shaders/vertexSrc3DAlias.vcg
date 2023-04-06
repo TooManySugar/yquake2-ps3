@@ -1,0 +1,23 @@
+void main
+(
+    // gl3_alias_vtx_t layout
+    float3 inPosition : POSITION, // vertexPosition
+    float2 inTexCoord : TEXCOORD0, // texCoord
+    float4 inColor : TEXCOORD1, // vertColor
+
+    uniform float4x4 transProjView,
+	uniform float4x4 transModel,
+
+    uniform float overbrightbits,
+	// uniform float gamma,
+	// uniform float intensity,
+
+    out float4 oPosition : POSITION, // gl_Position
+    out float2 oTexCoord : TEXCOORD2, // passTexCord
+    out float4 oColor : TEXCOORD3 // passColor
+)
+{
+    oColor = inColor * overbrightbits;
+    oTexCoord = inTexCoord;
+    oPosition = mul(transProjView, mul(transModel, float4(inPosition, 1.0)));
+}

@@ -1,0 +1,12 @@
+void main
+(
+    float4 inColor : TEXCOORD0, // passColor
+
+    uniform float gamma,
+
+    out float4 oColor
+)
+{
+    oColor.rgb = pow(inColor.rgb, float3(gamma));
+    oColor.a = inColor.a;
+}

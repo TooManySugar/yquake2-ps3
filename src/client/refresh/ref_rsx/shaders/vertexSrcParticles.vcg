@@ -1,0 +1,40 @@
+void main
+(
+    // part_vtx layout
+    float3 inPosition : POSITION, // vertexPosition
+    float2 inSizeDist : TEXCOORD0, // texCoord  yes, yamagi's team using single texCoord for 2 floats
+    float4 inColor : TEXCOORD1, // vertColor
+
+    uniform float4x4 transProjView,
+	uniform float4x4 transModel,
+    uniform float2 screenResolution,
+
+    out float4 oPosition : POSITION,
+    out float4 oColor : TEXCOORD0,
+    out float2 oScreenPos: TEXCOORD1,
+    out float  oPointSize : PSIZ, // Not working on real PS3
+    out float  oPassPointSize : TEXCOORD2
+)
+{
+    float inSize = inSizeDist.x;
+    float inDist = inSizeDist.y;
+
+    oColor = inColor;
+    oPosition = mul(transProjView, mul(transModel, float4(inPosition, 1.0)));
+
+    float pointDist = inDist*0.1; // with factor 0.1 it looks good.
+
+    oPointSize = inSize/pointDist;
+
+    // RSX NOTE:
+    // workaround to get point coordinates in screen coordinates for futher
+    // acquiring distance from point center in fragment shader:
+    // start with getting point position in non-device coordinates ([-1, 1], [-1, 1])
+    float2 ndcPos = oPosition.xy / oPosition.w;
+    // then convert it to screen coordinates
+    oScreenPos.x = screenResolution.x * (ndcPos.x * 0.5 + 0.5);
+    oScreenPos.y = screenResolution.y * (ndcPos.y * 0.5 + 0.5);
+    // also pass point size directly to fragment shader, it's already in screen
+    // coordinates - side of square point
+    oPassPointSize = oPointSize;
+}
