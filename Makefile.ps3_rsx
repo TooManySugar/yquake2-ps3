@@ -203,6 +203,9 @@ APPID		:=	QUAKE2
 CONTENTID	:=	UP0001-$(APPID)_00-0000000000000000
 SFOXML      :=  misc/sfo.xml
 
+# Sufix of [pre]pkg file
+PORT_VERSION := 0.02
+
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
@@ -341,33 +344,36 @@ $(BUILD)/shaders/fpo/%.fpo: src/client/refresh/ref_rsx/shaders/%.fcg
 prepbuild:
 	$(VERB) mkdir -p $(BUILD)
 
-#-------------------------------------------------------------------------------
-# git related stuff
-#-------------------------------------------------------------------------------
-GIT_REPO_COMMIT_HASH := $(shell git rev-parse --short HEAD)
-
-GIT_REPO_CHANGED := 
-ifneq ($(shell git status --porcelain | wc -l), 0)
-	GIT_REPO_CHANGED := _changed
-endif
-#-------------------------------------------------------------------------------
-
-# Sufix of prepkg file
-PORT_VERSION := $(GIT_REPO_COMMIT_HASH)$(GIT_REPO_CHANGED)
-
-$(OUTPUT)_prepkg_$(PORT_VERSION).zip: $(OUTPUT).self
-	$(VERB) echo building prepkg ... $(notdir $@)
-	$(VERB) rm -rf $(BUILD)/prepkg
-	$(VERB) cp -r prepkg -t $(BUILD)/
-	$(VERB) rm -f $(BUILD)/prepkg/README.md
-	$(VERB) echo $(PORT_VERSION) > $(BUILD)/prepkg/version
+# .elf file which is really used by this rule created somewhere midpoint
+# of making .self file
+$(BUILDDIR)/prepkg/pkg/USRDIR/EBOOT.BIN: $(OUTPUT).self
+	$(VERB) echo making EBOOT.BIN ...
 	$(VERB) mkdir -p $(BUILDDIR)/prepkg/pkg/USRDIR
-	$(VERB) $(SELF_NPDRM) $(BUILDDIR)/$(basename $(notdir $<)).elf $(BUILDDIR)/prepkg/pkg/USRDIR/EBOOT.BIN $(CONTENTID) >> /dev/null
+	$(VERB) $(SELF_NPDRM) $(BUILDDIR)/$(basename $(notdir $<)).elf $@ $(CONTENTID) >> /dev/null
+
+EBOOT: $(BUILDDIR)/prepkg/pkg/USRDIR/EBOOT.BIN
+
+pkg_contents: $(BUILDDIR)/prepkg/pkg/USRDIR/EBOOT.BIN
+	$(VERB) echo copying pkg contents ...
+	$(VERB) cp -vr ./prepkg/pkg/* $(BUILDDIR)/prepkg/pkg/
+	$(VERB) echo making PARAM.SFO ...
 	$(VERB) $(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILDDIR)/prepkg/pkg/PARAM.SFO
+
+CLEAN_PORT_VERSION := $(subst .,_,$(PORT_VERSION))
+
+# add appid file?
+prepkg_contents: pkg_contents
+	$(VERB) echo copying prepkg contents ...
+	$(VERB) rsync -a --exclude 'README.md' --exclude 'pkg' prepkg/ $(BUILDDIR)/prepkg/
+	$(VERB) echo $(CLEAN_PORT_VERSION) > $(BUILD)/prepkg/version
+
+$(OUTPUT)_v$(CLEAN_PORT_VERSION)_prepkg.zip: prepkg_contents
+	$(VERB) echo building prepkg ... $(notdir $@)
+	$(VERB) rm -f $@
 	$(VERB) ( cd $(BUILD)/prepkg && zip -9r ../../$(notdir $@) . )
 
 # Create share ready pkg creating archive
-prepkg: $(OUTPUT)_prepkg_$(PORT_VERSION).zip
+prepkg: $(OUTPUT)_v$(CLEAN_PORT_VERSION)_prepkg.zip
 
 pkg: $(OUTPUT).pkg
 
