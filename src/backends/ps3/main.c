@@ -25,7 +25,16 @@
  * =======================================================================
  */
 
+#include "sys/process.h"
+
 #include "../../common/header/common.h"
+
+// Setting process priority and stack size
+// Fixes crushes on huge stack size usage while running
+// as EBOOT.BIN launched directly from XMB.
+// Values taken from some random multiMan source code,
+// as all testing durring development done using it.
+SYS_PROCESS_PARAM(1200, 0x100000)
 
 int
 main(int argc, char **argv)
