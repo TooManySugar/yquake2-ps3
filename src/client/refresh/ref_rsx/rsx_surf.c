@@ -303,6 +303,7 @@ R_RSX_Surf_renderBrushPoly(entity_t *currententity, msurface_t *fa)
 
 	// GL3_BindLightmap(fa->lightmaptexturenum);
 	R_RSX_LM_SetLightMapSet(fa->lightmaptexturenum);
+	R_RSX_DLM_LoadDynLightmapAtlas(fa->lightmaptexturenum);
 
 	// apply lightmap animations
 	for (map = 0; map < MAX_LIGHTMAPS_PER_SURFACE && fa->styles[map] != 255; map++)
@@ -505,6 +506,7 @@ R_RSX_Surf_renderLightmappedPoly(entity_t *currententity, msurface_t *surf)
 
 	// GL3_BindLightmap(surf->lightmaptexturenum);
 	R_RSX_LM_SetLightMapSet(surf->lightmaptexturenum);
+	R_RSX_DLM_LoadDynLightmapAtlas(surf->lightmaptexturenum);
 
 	if (surf->texinfo->flags & SURF_FLOWING)
 	{
@@ -581,11 +583,17 @@ R_RSX_Surf_drawInlineBModel(entity_t *currententity, gl3model_t *currentmodel)
 			}
 			else if(!(psurf->flags & SURF_DRAWTURB))
 			{
+				// why though? model surfaces must be marked by R_RSX_Light_MarkLights
 				R_RSX_Surf_setAllLightFlags(psurf);
+
+				R_RSX_DLM_RecreateDynamicLightmapForSurface(psurf);
+
 				R_RSX_Surf_renderLightmappedPoly(currententity, psurf);
 			}
 			else
 			{
+				// no need to update dynamic lights as this is DRAWTURB
+				// and they dont affected by them
 				R_RSX_Surf_renderBrushPoly(currententity, psurf);
 			}
 		}
@@ -823,6 +831,14 @@ R_RSX_Surf_recursiveWorldNode(entity_t *currententity, mnode_t *node)
 			{
 				/* the polygon is visible, so add it to the texture sorted chain */
 				image = R_RSX_Surf_textureAnimation(currententity, surf->texinfo);
+
+				if (!(surf->flags & SURF_DRAWTURB))
+				{
+					// build dynamic lightmap right away to not double walk
+					// on texturechain
+					R_RSX_DLM_RecreateDynamicLightmapForSurface(surf);
+				}
+
 				surf->texturechain = image->texturechain;
 				image->texturechain = surf;
 			}

@@ -180,26 +180,13 @@ R_RSX_Light_PushDynLights(void)
 
 	l = gl3_newrefdef.dlights;
 
-	gl3state.uniLightsData.numDynLights = gl3_newrefdef.num_dlights;
-
 	for (i = 0; i < gl3_newrefdef.num_dlights; i++, l++)
 	{
-		gl3UniDynLight* udl = &gl3state.uniLightsData.dynLights[i];
 		R_RSX_Light_MarkLights(l, 1 << i, gl3_worldmodel->nodes);
-
-		VectorCopy(l->origin, udl->origin);
-		VectorCopy(l->color, udl->color);
-		udl->intensity = l->intensity;
 	}
 
-	assert(MAX_DLIGHTS == 32 && "If MAX_DLIGHTS changes, remember to adjust the uniform buffer definition in the shader!");
-
-	if (i < MAX_DLIGHTS)
-	{
-		memset(&gl3state.uniLightsData.dynLights[i], 0, (MAX_DLIGHTS-i)*sizeof(gl3state.uniLightsData.dynLights[0]));
-	}
-
-	R_RSX_Shaders_UpdateDynLights();
+	assert(MAX_DLIGHTS == 32 && "If MAX_DLIGHTS changes... Well if it's leq to 32 just change value here, if it's more... change whole dlightbits mechanism");
+	// RSX NOTE: I really wish to use G-buffers instead
 }
 
 static int

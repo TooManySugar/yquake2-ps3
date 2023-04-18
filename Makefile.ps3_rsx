@@ -143,6 +143,7 @@ CSOURCES	+=	\
 				src/client/refresh/ref_rsx/rsx_surf.c \
 				src/client/refresh/ref_rsx/rsx_light.c \
 				src/client/refresh/ref_rsx/rsx_lightmap.c \
+				src/client/refresh/ref_rsx/rsx_dlightmap.c \
 				src/client/refresh/ref_rsx/rsx_model_md2.c \
 				src/client/refresh/ref_rsx/rsx_model_sp2.c \
 				src/client/refresh/ref_rsx/rsx_model.c \

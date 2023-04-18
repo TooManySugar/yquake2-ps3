@@ -405,60 +405,6 @@ R_RSX_Shaders_updateLmScalesOnShader(const hmm_vec4 lmScales[MAX_LIGHTMAPS_PER_S
 }
 
 void
-R_RSX_Shaders_updateDynLightsOnShader(R_RSX_Shaders_universalWrapper_t* shader)
-{
-	if (shader->type != R_RSX_SHADER_TYPE_FRAGMENT && shader->type != R_RSX_SHADER_TYPE_VERTEX)
-	{
-		Com_Printf("ref_rsx::%s: ERROR invalid shader type - %d\n", __func__, shader->type);
-		return;
-	}
-
-	// only fragment shaders use dynamic lights data
-	if (shader->type != R_RSX_SHADER_TYPE_FRAGMENT)
-	{
-		return;
-	}
-
-	// RSX NOTE: I dont do any checks here shader must have everything set 
-
-	for (int i = 0; i < MAX_DLIGHTS; ++i)
-	{
-		// if (i < gl3_newrefdef.num_dlights)
-		// {
-		// 	Com_Printf("%s pos {%f, %f, %f} color: {%f, %f, %f} intensity: %f\n",
-		// 		__func__,
-		// 		dlights_s[i].origin[0], dlights_s[i].origin[1], dlights_s[i].origin[2],
-		// 		dlights_s[i].color[0], dlights_s[i].color[1], dlights_s[i].color[2],
-		// 		dlights_s[i].intensity);
-		// }
-
-		rsxSetFragmentProgramParameter(
-			gcmContext,
-			shader->description.fragment.fpo,
-			shader->binds.uniMisc.dlights[i].pos,
-			(float*)&(gl3state.uniLightsData.dynLights[i].origin),
-			shader->description.fragment.fp_offset,
-			GCM_LOCATION_RSX);
-
-		rsxSetFragmentProgramParameter(
-			gcmContext,
-			shader->description.fragment.fpo,
-			shader->binds.uniMisc.dlights[i].color,
-			(float*)&(gl3state.uniLightsData.dynLights[i].color),
-			shader->description.fragment.fp_offset,
-			GCM_LOCATION_RSX);
-
-		rsxSetFragmentProgramParameter(
-			gcmContext,
-			shader->description.fragment.fpo,
-			shader->binds.uniMisc.dlights[i].intensity,
-			(float*)&(gl3state.uniLightsData.dynLights[i].intensity),
-			shader->description.fragment.fp_offset,
-			GCM_LOCATION_RSX);
-	}
-}
-
-void
 R_RSX_Shaders_updateScreenResolutionOnShader(R_RSX_Shaders_universalWrapper_t* shader)
 {
 	if (shader->type != R_RSX_SHADER_TYPE_FRAGMENT && shader->type != R_RSX_SHADER_TYPE_VERTEX)
@@ -743,70 +689,6 @@ R_RSX_Shaders_initFs3Dlm(void)
 		&(gl3state.fs3Dlm),
 		(rsxFragmentProgram*)fragmentSrc3Dlm_fpo);
 
-	// searching for dlights made consts
-	// I'm not proud of this part but it shows how to review constants (uniforms) of
-	// shader same could be applied to Attributes (sameplers) 
-	uint16_t constNum = rsxFragmentProgramGetNumConst(gl3state.fs3Dlm.description.fragment.fpo);
-	rsxProgramConst * fp_consts = rsxFragmentProgramGetConsts(gl3state.fs3Dlm.description.fragment.fpo);
-	for (int i = 0; i < constNum; ++i)
-	{
-		int dlight_index;
-		char *fpConstName = (char*)((byte*)(gl3state.fs3Dlm.description.fragment.fpo) + fp_consts[i].name_off);
-		Com_Printf("%d. num: %d '%s'\n", i, fp_consts[i].name_off, fpConstName);
-		char *p = fpConstName;
-
-
-		if (strncmp(p, "dlights[", strlen("dlights[")) != 0) continue;
-
-		p = (char*)(p + strlen("dlights["));
-		
-		{
-			Com_Printf("leftovers: %s\n", p);
-			char* index_ptr = p;
-			while(isdigit(*p)) p++;
-			dlight_index = atoi(index_ptr);
-		}
-
-		
-		if(*p != ']') continue;
-		p++;
-		
-		Com_Printf("is dlight arr %d\n", dlight_index);
-
-		#if (MAX_DLIGHTS != 32)
-		#warning MAX_DLIGHTS changed adjust value in fragment shader 3d lm
-		#endif
-
-		if (dlight_index >= MAX_DLIGHTS)
-		{
-			Com_Printf("[Shader] dlight index found in shader bigger then MAX_DLIGHTS check build warnings\n");
-			continue;
-		}
-
-		if(*p != '.') continue;
-		p++;
-
-		if (strcmp(p, "pos") == 0)
-		{
-			Com_Printf("is pos\n");
-			gl3state.fs3Dlm.binds.uniMisc.dlights[dlight_index].pos = &fp_consts[i];
-		}
-		else if (strcmp(p, "color") == 0)
-		{
-			Com_Printf("is color\n");
-			gl3state.fs3Dlm.binds.uniMisc.dlights[dlight_index].color = &fp_consts[i];
-		}
-		else if (strcmp(p, "intensity") == 0)
-		{
-			Com_Printf("is intensity\n");
-			gl3state.fs3Dlm.binds.uniMisc.dlights[dlight_index].intensity = &fp_consts[i];
-		}
-		else
-		{
-			continue;
-		}
-	}
-
 	gl3state.fs3Dlm.binds.uni3D.overbrightbits = rsxFragmentProgramGetConst(
 		gl3state.fs3Dlm.description.fragment.fpo,
 		"overbrightbits");
@@ -857,11 +739,16 @@ R_RSX_Shaders_initFs3Dlm(void)
 		gl3state.fs3Dlm.description.fragment.fpo,
 		"lightmap3");
 
+	rsxProgramAttrib* dlightmap = rsxFragmentProgramGetAttrib(
+		gl3state.fs3Dlm.description.fragment.fpo,
+		"dlightmap");
+
 	Com_DPrintf("fs3Dlm texture: %d\n", texture->index);
 	Com_DPrintf("fs3Dlm lightmap0: %d\n", lightmap0->index);
 	Com_DPrintf("fs3Dlm lightmap1: %d\n", lightmap1->index);
 	Com_DPrintf("fs3Dlm lightmap2: %d\n", lightmap2->index);
 	Com_DPrintf("fs3Dlm lightmap3: %d\n", lightmap3->index);
+	Com_DPrintf("fs3Dlm dlightmap: %d\n", dlightmap->index);
 
 	/* 
 		Atrib indexes is like OpenGL's TMUs so they can be
@@ -876,6 +763,7 @@ R_RSX_Shaders_initFs3Dlm(void)
 	assert(lightmap1->index == 2);
 	assert(lightmap2->index == 3);
 	assert(lightmap3->index == 4);
+	assert(dlightmap->index == 5);
 }
 
 // 3D Vertex Alias
@@ -1187,12 +1075,6 @@ void
 R_RSX_Shaders_UpdateScreenResolution(void)
 {
 	R_RSX_Shaders_updateScreenResolutionOnShader(&(gl3state.vsParticle));
-}
-
-void
-R_RSX_Shaders_UpdateDynLights()
-{
-	R_RSX_Shaders_updateDynLightsOnShader(&(gl3state.fs3Dlm));
 }
 
 // for now only one shader using them in future shader must be specified

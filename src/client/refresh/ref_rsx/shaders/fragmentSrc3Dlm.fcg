@@ -64,12 +64,21 @@ void main
 	uniform sampler2D lightmap2,
 	uniform sampler2D lightmap3,
 
+	uniform sampler2D dlightmap,
+
+	// not the way - sampling same textures multiple times really slow
+	// on RSX
+	// uniform sampler1D dlight_pos_vec,
+	// uniform sampler1D dlight_color_vec,
+
 	uniform float4 lm0_scale,
 	uniform float4 lm1_scale,
 	uniform float4 lm2_scale,
 	uniform float4 lm3_scale,
 
-	uniform light_t dlights[32],
+	// not the way - array extends to per struct fields
+	// meaning - 96 uniform constants in compiled shader which is really huge
+	// uniform light_t dlights[32],
 
 	out float4 oColor
 )
@@ -85,64 +94,8 @@ void main
 	lm_texel       += tex2D(lightmap2, lmcoord) * lm2_scale;
 	lm_texel       += tex2D(lightmap3, lmcoord) * lm3_scale;
 
-
-	// process dynamic lightmaps
-	// if(lightflags != 0u)
-	{
-		for(int i = 0u; i < 32; ++i)
-		{
-			// I made the following up, it's probably not too cool..
-			// it basically checks if the light is on the right side of the surface
-			// and, if it is, sets intensity according to distance between light and pixel on surface
-
-			// dyn light number i does not affect this plane, just skip it
-			// if((lightflags & (1u << i)) == 0u)  continue;
-			/* cg language does not support bit shifts (and speaking of RSX's 'bitwise and' too)
-			 * so do it arithmetically */
-
-			// unsigned int temp_lightflags = lightflags;
-			// if (i < 31)
-			// {
-			// 	temp_lightflags %= ito2pow(i+1);
-			// }
-
-			// if (temp_lightflags == 0u) continue;
-
-			float3 lpos = dlights[i].pos;
-			float3 lcolor = dlights[i].color;
-			float  lintensity = dlights[i].intensity;
-
-			// static dynamic point to test distance from near plane  bug
-			// if (i == 31)
-			// {
-			// 	// test color in base2
-			// 	// pos {36.067516, -284.796509, 25.449162} color: {1.000000, 1.000000, 0.000000} intensity: 213.000000
-			// 	lpos = lpos * 0.0001 + float3(36.067516, -284.796509, 25.449162);
-			// 	lcolor = lcolor * 0.0001 + float3(1.000000, 1.000000, 0.000000);
-			// 	lintensity = lintensity * 0.0001 + 213.0;
-			// }
-
-			float3 lightToPos = lpos - position;
-
-			float distLightToPos = length(lightToPos);
-			float fact = max(0.0f, (lintensity - distLightToPos - 52.0f));
-
-			// move the light source a bit further above the surface
-			// => helps if the lightsource is so close to the surface (e.g. grenades, rockets)
-			//    that the dot product below would return 0
-			// (light sources that are below the surface are filtered out by lightFlags)
-			lightToPos += normal * 32.0f;
-
-			// also factor in angle between light and point on surface
-			// RSX NOTE: temporary fix of 'distance from near plane' bug 
-			// this is bullshit but multiplication of real multiplicator by 0.0001
-			// and setting it to 0.7 makes it look normal both on PS3 and on emulator
-			fact *= (0.7 + max(0.0, dot(normal, normalize(lightToPos))) * 0.0001);
-
-			lm_texel.rgb += lcolor * fact * (1.0f / 256.0f);
-		}
-	}
-	// lm_texel.rgb += float3(1.000000, 1.000000, 0.000000) * 213 * 0.7 * (1.0f / 256.0f);
+	// blend dynamic lightmap
+	lm_texel       += tex2D(dlightmap, lmcoord);
 
 	lm_texel.rgb *= overbrightbits;
 	oColor = lm_texel * texel;

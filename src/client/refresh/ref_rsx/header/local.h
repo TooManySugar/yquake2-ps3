@@ -203,11 +203,6 @@ typedef struct {
 
 	rsxProgramConst *screenRes;
 	rsxProgramConst *lmScales[4]; // MAX_LIGHTMAPS_PER_SURFACE == 4
-	struct {
-		rsxProgramConst* pos;
-		rsxProgramConst* color;
-		rsxProgramConst* intensity;
-	} dlights[32];
 
 } R_RSX_Shaders_miscBinds_t;
 
@@ -298,19 +293,6 @@ typedef struct
 } gl3Uni3D_t;
 
 extern const hmm_mat4 gl3_identityMat4;
-
-typedef struct
-{
-	vec3_t origin;
-	vec3_t color;
-	float intensity;
-} gl3UniDynLight;
-
-typedef struct
-{
-	gl3UniDynLight dynLights[MAX_DLIGHTS];
-	GLuint numDynLights;
-} gl3UniLights_t;
 
 enum {
 	// width and height used to be 128, so now we should be able to get the same lightmap data
@@ -464,11 +446,9 @@ typedef struct
 	gl3UniCommon_t uniCommonData;
 	gl3Uni2D_t uni2DData;
 	gl3Uni3D_t uni3DData;
-	gl3UniLights_t uniLightsData;
 	GLuint uniCommonUBO;
 	GLuint uni2DUBO;
 	GLuint uni3DUBO;
-	GLuint uniLightsUBO;
 
 	hmm_mat4 projMat3D;
 	hmm_mat4 viewMat3D;
@@ -655,6 +635,12 @@ extern void R_RSX_LM_CreateSurfaceLightmap(msurface_t *surf);
 extern void R_RSX_LM_BeginBuildingLightmaps(gl3model_t *m);
 extern void R_RSX_LM_EndBuildingLightmaps(void);
 
+// rsx_dlightmap.c
+extern void R_RSX_DLM_Init(void);
+extern void R_RSX_DLM_Shutdown(void);
+extern void R_RSX_DLM_LoadDynLightmapAtlas(uint32_t dlm_atlas_index);
+extern void R_RSX_DLM_RecreateDynamicLightmapForSurface(msurface_t *surf);
+
 // rsx_warp.c
 extern void R_RSX_Warp_EmitWaterPolys(msurface_t *fa);
 extern void R_RSX_Warp_SubdivideSurface(msurface_t *fa, gl3model_t* loadmodel);
@@ -698,7 +684,6 @@ extern void R_RSX_Shaders_UpdateUni2DData(void);
 extern void R_RSX_Shaders_UpdateUni3DData(void);
 extern void R_RSX_Shaders_UpdateScreenResolution(void);
 // extern void GL3_UpdateUBOLights(void);
-extern void R_RSX_Shaders_UpdateDynLights(void);
 extern void R_RSX_Shaders_SetTexture0(gl3image_t *texture);
 extern void R_RSX_Shaders_UpdateLmScales(const hmm_vec4 lmScales[MAX_LIGHTMAPS_PER_SURFACE]);
 

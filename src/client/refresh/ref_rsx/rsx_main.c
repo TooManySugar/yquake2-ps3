@@ -648,6 +648,7 @@ R_RSX_Init(void)
 	// init
 	R_RSX_Image_Init();
 	R_RSX_LM_Init();
+	R_RSX_DLM_Init();
 
 	R_RSX_Mod_Init();
 
@@ -1117,6 +1118,7 @@ void R_RSX_Shutdown(void)
 
 	R_RSX_Mod_FreeAll();
 
+	R_RSX_DLM_Shutdown();
 	R_RSX_LM_Shutdown();
 	R_RSX_Image_Shutdown();
 

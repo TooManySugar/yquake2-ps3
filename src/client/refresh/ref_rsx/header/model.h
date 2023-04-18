@@ -128,6 +128,8 @@ typedef struct msurface_s
 	byte styles[MAXLIGHTMAPS]; // MAXLIGHTMAPS = MAX_LIGHTMAPS_PER_SURFACE (defined in local.h)
 	// I think cached_light is not used/needed anymore
 	//float cached_light[MAXLIGHTMAPS];       /* values currently used in lightmap */
+	uint8_t dlights_affected;               /* is dynamic lightmap not empty*/
+
 	byte *samples;                          /* [numstyles*surfsize] */
 } msurface_t;
 
