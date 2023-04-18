@@ -78,58 +78,15 @@ R_RSX_LM_SetLightMapSet(uint32_t lm_set_index)
 static inline void
 R_RSX_LM_moveToNextSet(void)
 {
-	// Also use this step to set lightmap_texture[][0..3]
-	// No necessary to be done here but this plays role of
-	// GL3_LM_UploadBlock
-	gcmTexture *lightmap_texture;
-	uint32_t lm_set = gl3_lms.current_lightmap_set;
-	
-	for (uint32_t lm_i = 0; lm_i < MAX_LIGHTMAPS_PER_SURFACE; ++lm_i)
-	{
-		lightmap_texture = &(gl3_lms.lightmap_textures[lm_set][lm_i]);
-
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		// Done at texture to TMU bind stage
-
-		gl3_lms.internal_format = (GCM_TEXTURE_FORMAT_A8R8G8B8 | GCM_TEXTURE_FORMAT_LIN);
-
-		// glTexImage2D(GL_TEXTURE_2D, 0, gl3_lms.internal_format,
-		//              BLOCK_WIDTH, BLOCK_HEIGHT, 0, GL_LIGHTMAP_FORMAT,
-		//              GL_UNSIGNED_BYTE, gl3_lms.lightmap_buffers[map]);
-		lightmap_texture->format    = gl3_lms.internal_format;
-		lightmap_texture->mipmap    = 1;
-		lightmap_texture->dimension = GCM_TEXTURE_DIMS_2D;
-		lightmap_texture->cubemap   = GCM_FALSE;
-
-		/* remap done here because lightmap generation uses RGBA,
-		 * but RSX store with format ARGB,
-		 * but in shaders it is still reads RGBA
-		 * 
-		 * A - R
-		 * R - G
-		 * G - B
-		 * B - A
-		 * */
-		lightmap_texture->remap     = ((GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_B_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_G_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_R_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_A_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_COLOR_A << GCM_TEXTURE_REMAP_COLOR_R_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_COLOR_R << GCM_TEXTURE_REMAP_COLOR_G_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_COLOR_G << GCM_TEXTURE_REMAP_COLOR_B_SHIFT) |
-		                               (GCM_TEXTURE_REMAP_COLOR_B << GCM_TEXTURE_REMAP_COLOR_A_SHIFT));
-		lightmap_texture->width     = BLOCK_WIDTH;
-		lightmap_texture->height    = BLOCK_HEIGHT;
-		lightmap_texture->depth     = 1;
-		lightmap_texture->location  = GCM_LOCATION_RSX;
-		lightmap_texture->pitch     = BLOCK_WIDTH * LIGHTMAP_BYTES;
-		rsxAddressToOffset(gl3_lms.lightmap_buffers_ptr[lm_set][lm_i], &(lightmap_texture->offset));
-	}
+	// This function barely plays the role of GL3_LM_UploadBlock.
+	// Because we work with texture data directly there is no
+	// such thing as "upload" something
+	// So the only thing this function does is boundary check
+	// for lightmap atlas sets
 
 	if (++gl3_lms.current_lightmap_set == MAX_LIGHTMAPS)
 	{
-		ri.Sys_Error(ERR_DROP, "LM_UploadBlock() - MAX_LIGHTMAPS exceeded\n");
+		ri.Sys_Error(ERR_DROP, "%s() - MAX_LIGHTMAPS exceeded\n", __func__);
 	}
 }
 
@@ -322,6 +279,10 @@ R_RSX_LM_BeginBuildingLightmaps(gl3model_t *m)
 	/* setup the base lightstyles so the lightmaps
 	   won't have to be regenerated the first time
 	   they're seen */
+	// RSX NOTE: comment above is present in OpenGL 3 refresher
+	// but it's contents is missleading as it left from OGL1.
+	// In OGL3 lightmap textures blended (regenerated) directly
+	// in fragment program. So do I in RSX refresher.
 	for (i = 0; i < MAX_LIGHTSTYLES; i++)
 	{
 		lightstyles[i].rgb[0] = 1;
@@ -336,23 +297,66 @@ R_RSX_LM_BeginBuildingLightmaps(gl3model_t *m)
 	gl3_lms.internal_format = LIGHTMAP_FORMAT;
 
 	// Note: the dynamic lightmap used to be initialized here, we don't use that anymore.	
+	// RSX NOTE: I do use them. But their code is addition to lightmaps,
+	// not a part of them. Initialized and handled separetly from static lightmaps
 }
 
 void
 R_RSX_LM_EndBuildingLightmaps(void)
 {
-	// GL3_LM_UploadBlock();
-	R_RSX_LM_moveToNextSet();
+	// Since the lightmap textures are directly modified
+	// there is no need to upload them as they already where
+	// they should be.
 }
 
 void
 R_RSX_LM_Init(void)
 {
+	gcmTexture *lightmap_texture;
 	for (uint32_t lm_set = 0; lm_set < MAX_LIGHTMAPS; ++lm_set)
 	{
 		for (uint32_t lm_i = 0; lm_i < MAX_LIGHTMAPS_PER_SURFACE; ++lm_i)
 		{
-			gl3_lms.lightmap_buffers_ptr[lm_set][lm_i] = rsxMemalign_with_log(128, (sizeof(byte) * 4 * BLOCK_WIDTH * BLOCK_HEIGHT));
+			lightmap_texture = &(gl3_lms.lightmap_textures[lm_set][lm_i]);
+
+			// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			// Done at texture to TMU bind stage
+
+			gl3_lms.internal_format = (GCM_TEXTURE_FORMAT_A8R8G8B8 | GCM_TEXTURE_FORMAT_LIN);
+
+			// glTexImage2D(GL_TEXTURE_2D, 0, gl3_lms.internal_format,
+			//              BLOCK_WIDTH, BLOCK_HEIGHT, 0, GL_LIGHTMAP_FORMAT,
+			//              GL_UNSIGNED_BYTE, gl3_lms.lightmap_buffers[map]);
+			lightmap_texture->format    = gl3_lms.internal_format;
+			lightmap_texture->mipmap    = 1;
+			lightmap_texture->dimension = GCM_TEXTURE_DIMS_2D;
+			lightmap_texture->cubemap   = GCM_FALSE;
+
+			/* remap done here because lightmap generation uses RGBA,
+			* but RSX store with format ARGB,
+			* but in shaders it is still reads RGBA
+			*
+			* A - R
+			* R - G
+			* G - B
+			* B - A
+			*/
+			lightmap_texture->remap     = ((GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_B_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_G_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_R_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_A_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_COLOR_A << GCM_TEXTURE_REMAP_COLOR_R_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_COLOR_R << GCM_TEXTURE_REMAP_COLOR_G_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_COLOR_G << GCM_TEXTURE_REMAP_COLOR_B_SHIFT) |
+			                               (GCM_TEXTURE_REMAP_COLOR_B << GCM_TEXTURE_REMAP_COLOR_A_SHIFT));
+			lightmap_texture->width     = BLOCK_WIDTH;
+			lightmap_texture->height    = BLOCK_HEIGHT;
+			lightmap_texture->depth     = 1;
+			lightmap_texture->location  = GCM_LOCATION_RSX;
+			lightmap_texture->pitch     = BLOCK_WIDTH * LIGHTMAP_BYTES;
+			gl3_lms.lightmap_buffers_ptr[lm_set][lm_i] = rsxMemalign_with_log(128, (lightmap_texture->pitch * lightmap_texture->height));
+			rsxAddressToOffset(gl3_lms.lightmap_buffers_ptr[lm_set][lm_i], &(lightmap_texture->offset));
 		}
 	}
 }
