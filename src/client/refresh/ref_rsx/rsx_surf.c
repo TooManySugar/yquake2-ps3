@@ -304,7 +304,7 @@ R_RSX_Surf_renderBrushPoly(entity_t *currententity, msurface_t *fa)
 	// GL3_BindLightmap(fa->lightmaptexturenum);
 	R_RSX_LM_SetLightMapSet(fa->lightmaptexturenum);
 
-	// Any dynamic lights on this surface?
+	// apply lightmap animations
 	for (map = 0; map < MAX_LIGHTMAPS_PER_SURFACE && fa->styles[map] != 255; map++)
 	{
 		lmScales[map].R = gl3_newrefdef.lightstyles[fa->styles[map]].rgb[0];
@@ -489,7 +489,7 @@ R_RSX_Surf_renderLightmappedPoly(entity_t *currententity, msurface_t *surf)
 	assert((surf->texinfo->flags & (SURF_SKY | SURF_TRANS33 | SURF_TRANS66 | SURF_WARP)) == 0
 			&& "RenderLightMappedPoly mustn't be called with transparent, sky or warping surfaces!");
 
-	// Any dynamic lights on this surface?
+	// apply lightmap animations
 	for (map = 0; map < MAX_LIGHTMAPS_PER_SURFACE && surf->styles[map] != 255; map++)
 	{
 		lmScales[map].R = gl3_newrefdef.lightstyles[surf->styles[map]].rgb[0];

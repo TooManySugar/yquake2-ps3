@@ -299,7 +299,19 @@ R_RSX_LM_CreateSurfaceLightmap(msurface_t *surf)
 void
 R_RSX_LM_BeginBuildingLightmaps(gl3model_t *m)
 {
-
+	// lightstyles updates by client on every frame!
+	// every msurface_t might have up to 4 lightstyles
+	// ?and as less as 0 lightstyles?
+	// lightstyle[i] is an animation describes
+	// how lightmap affects certain surface at a time
+	// values inside rgb may vary from 0.0 to 2.0.
+	// lightmap colors will be multiplicated by them
+	// white is a sum of rgb values, meanwhile all
+	// values in rgb is allways equal to each other
+	// in GL1 refresher white values of surface used to
+	// check if surface lightmaps need to be reblanded
+	// (caching as they call it)
+	// (rebland must occur for dynamic lighted surface)
 	static lightstyle_t lightstyles[MAX_LIGHTSTYLES];
 	int i;
 
