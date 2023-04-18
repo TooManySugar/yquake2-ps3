@@ -35,8 +35,15 @@ gl3image_t *draw_chars;
 static void *vb2D[AMOUNT_OF_2D_BUFFERS] = { NULL };
 uint32_t used_vb2Ds = 0;
 
-static void
+// initial values to stretch raw buffer
+#define STRETCH_RAW_W 320
+#define STRETCH_RAW_H 240
 
+static void *stretch_raw_buffer = NULL;
+static int stretch_raw_size;
+static gcmTexture stretch_raw_texture;
+
+static void
 R_RSX_Draw_shutdown2DVertexBuffers()
 {
 	for (uint32_t i = 0; i < AMOUNT_OF_2D_BUFFERS; ++i)
@@ -83,6 +90,60 @@ R_RSX_Draw_next2DVertexBuffer()
 	return res;
 }
 
+static qboolean
+R_RWS_Draw_initStretchRawTexture()
+{
+	stretch_raw_size = STRETCH_RAW_W * STRETCH_RAW_W * 4;
+	stretch_raw_buffer = rsxMemalign_with_log(128, stretch_raw_size);
+
+	if (stretch_raw_buffer == NULL)
+	{
+		stretch_raw_size = 0;
+		return false;
+	}
+
+	memset(&stretch_raw_texture, 0, sizeof(stretch_raw_texture));
+
+	stretch_raw_texture.format    = (GCM_TEXTURE_FORMAT_A8R8G8B8 | GCM_TEXTURE_FORMAT_LIN);
+	stretch_raw_texture.mipmap    = 1;
+	stretch_raw_texture.dimension = GCM_TEXTURE_DIMS_2D;
+	stretch_raw_texture.cubemap   = GCM_FALSE;
+
+	/* A - R
+	 * R - G
+	 * G - B
+	 * B - A
+	 */
+	stretch_raw_texture.remap     = ((GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_B_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_G_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_R_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_TYPE_REMAP << GCM_TEXTURE_REMAP_TYPE_A_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_COLOR_A << GCM_TEXTURE_REMAP_COLOR_R_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_COLOR_R << GCM_TEXTURE_REMAP_COLOR_G_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_COLOR_G << GCM_TEXTURE_REMAP_COLOR_B_SHIFT) |
+	                                 (GCM_TEXTURE_REMAP_COLOR_B << GCM_TEXTURE_REMAP_COLOR_A_SHIFT));
+	stretch_raw_texture.width     = STRETCH_RAW_W;
+	stretch_raw_texture.height    = STRETCH_RAW_H;
+	stretch_raw_texture.depth     = 1;
+	stretch_raw_texture.location  = GCM_LOCATION_RSX;
+	stretch_raw_texture.pitch     = STRETCH_RAW_W * STRETCH_RAW_H * 4;
+	rsxAddressToOffset(stretch_raw_buffer, &(stretch_raw_texture.offset));
+
+	return true;
+}
+
+static void
+R_RSX_Draw_shutdownStretchRawTexture()
+{
+	if (stretch_raw_buffer != NULL)
+	{
+		rsxFree_with_log(stretch_raw_buffer);
+		stretch_raw_buffer = NULL;
+	}
+
+	memset(&stretch_raw_texture, 0, sizeof(stretch_raw_texture));
+}
+
 void
 R_RSX_Draw_InitLocal(void)
 {
@@ -99,7 +160,12 @@ R_RSX_Draw_InitLocal(void)
 		ri.Sys_Error(ERR_FATAL, "Couldn't allocate memory for 2D vertex buffers");
 	}
 	R_Printf(PRINT_ALL, "Allocated %d 2D Vertex buffers\n", AMOUNT_OF_2D_BUFFERS);
-	
+
+	if (!R_RWS_Draw_initStretchRawTexture())
+	{
+		ri.Sys_Error(ERR_FATAL, "Couldn't allocate memory for initial stretch raw texture");
+	}
+	R_Printf(PRINT_ALL, "Allocated stretch raw texture (%p) with size %d bytes\n", stretch_raw_buffer, stretch_raw_size);	
 
 	// set up attribute layout for 2D textured rendering
 	// glGenVertexArrays(1, &vao2D);
@@ -137,6 +203,7 @@ void
 R_RSX_Draw_ShutdownLocal(void)
 {
 	R_RSX_Draw_shutdown2DVertexBuffers();
+	R_RSX_Draw_shutdownStretchRawTexture();
 	// glDeleteBuffers(1, &vbo2D);
 	// vbo2D = 0;
 	// glDeleteVertexArrays(1, &vao2D);
@@ -591,61 +658,80 @@ R_RSX_Draw_FadeScreen(void)
 void
 R_RSX_Draw_StretchRaw(int x, int y, int w, int h, int cols, int rows, byte *data)
 {
-	// Requires to build texture from <data>, draw it and then free it
-	// static qboolean is_first_call = true;
-	NOT_IMPLEMENTED();
+	if (cols * rows > stretch_raw_size)
+	{
+		/* in case there is a bigger video after all,
+		 * malloc enough space to hold the frame */
 
-	// int i, j;
+		if (stretch_raw_buffer != NULL)
+		{
+			rsxFree_with_log(stretch_raw_buffer);
+			stretch_raw_buffer = NULL;
+			stretch_raw_size = 0;
+		}
 
-	// GL3_Bind(0);
+		int sz = cols * rows * 4;
+		stretch_raw_buffer = rsxMemalign_with_log(128, sz);
+		if (stretch_raw_buffer == NULL)
+		{
+			Com_Printf("ref_rsx::%s ERROR: couldn't allocate %d bytes of memory to draw %dx%d cinematic frame\n", __func__, sz, cols, rows);
+			return;
+		}
+		Com_DPrintf("ref::rsx::%s stretch_raw_buffer reallocated to %p\n", __func__, stretch_raw_buffer);
 
-	// unsigned image32[320*240]; /* was 256 * 256, but we want a bit more space */
+		stretch_raw_size = sz;
+		rsxAddressToOffset(stretch_raw_buffer, &(stretch_raw_texture.offset));
+	}
 
-	// unsigned* img = image32;
+	unsigned* img = (unsigned*)stretch_raw_buffer;
 
-	// if(cols*rows > 320*240)
-	// {
-	// 	/* in case there is a bigger video after all,
-	// 	 * malloc enough space to hold the frame */
-	// 	img = (unsigned*)malloc(cols*rows*4);
-	// }
+	for (int i = 0; i < rows; ++i)
+	{
+		int rowOffset = i * cols;
+		for (int j = 0; j < cols; ++j)
+		{
+			byte palIdx = data[rowOffset+j];
+			img[rowOffset+j] =  gl3_rawpalette[palIdx];
+		}
+	}
 
-	// for(i=0; i<rows; ++i)
-	// {
-	// 	int rowOffset = i*cols;
-	// 	for(j=0; j<cols; ++j)
-	// 	{
-	// 		byte palIdx = data[rowOffset+j];
-	// 		img[rowOffset+j] = gl3_rawpalette[palIdx];
-	// 	}
-	// }
+	stretch_raw_texture.width = cols;
+	stretch_raw_texture.height = rows;
+	stretch_raw_texture.pitch = stretch_raw_texture.width * sizeof(unsigned);
 
-	// GL3_UseProgram(gl3state.si2D.shaderProgram);
+	int8_t filter = (r_videos_unfiltered->value == 0) ? gl_filter_max : GCM_TEXTURE_NEAREST;
+	rsxTextureFilter(
+		gcmContext,
+		0, // index
+		0, // bias
+		filter, // min filter
+		filter, // mag filter
+		GCM_TEXTURE_CONVOLUTION_QUINCUNX); // conv
 
-	// GLuint glTex;
-	// glGenTextures(1, &glTex);
-	// GL3_SelectTMU(GL_TEXTURE0);
-	// glBindTexture(GL_TEXTURE_2D, glTex);
+	rsxLoadTexture(gcmContext, 0, &stretch_raw_texture);
 
-	// glTexImage2D(GL_TEXTURE_2D, 0, gl3_tex_solid_format,
-	//              cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+	rsxTextureControl(
+		gcmContext,
+		0, // index
+		GCM_TRUE, // enable
+		0<<8, // minlod
+		12<<8, // maxlod
+		GCM_TEXTURE_MAX_ANISO_1); // maxaniso
 
-	// if(img != image32)
-	// {
-	// 	free(img);
-	// }
+	rsxTextureWrapMode(
+		gcmContext,
+		0,  // index
+		GCM_TEXTURE_CLAMP_TO_EDGE, // wraps
+		GCM_TEXTURE_CLAMP_TO_EDGE, // wrapt
+		GCM_TEXTURE_CLAMP_TO_EDGE, // wrapr
+		0, // remap?
+		GCM_TEXTURE_ZFUNC_LESS, // zfunc
+		0); // gamma
 
-	// // Note: gl_filter_min could be GL_*_MIPMAP_* so we can't use it for min filter here (=> no mipmaps)
-	// //       but gl_filter_max (either GL_LINEAR or GL_NEAREST) should do the trick.
-	// GLint filter = (r_videos_unfiltered->value == 0) ? gl_filter_max : GL_NEAREST;
-	// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-	// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+	R_RSX_Shaders_Load(&(gl3state.vs2DTexture));
+	R_RSX_Shaders_Load(&(gl3state.fs2DTexture));
 
-	// drawTexturedRectangle(x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f);
-
-	// glDeleteTextures(1, &glTex);
-
-	// GL3_Bind(0);
+	R_RSX_Draw_texturedRectangle(x, y, w, h, 0.0f, 0.0f, 1.0f, 1.0f);
 }
 
 int
