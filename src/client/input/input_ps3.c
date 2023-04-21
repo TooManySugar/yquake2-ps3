@@ -34,6 +34,7 @@
  */
 
 #include <io/pad.h>
+#include <sysutil/sysutil.h>
 
 #include "header/input.h"
 #include "../../client/header/keyboard.h"
@@ -301,6 +302,8 @@ IN_Update(void)
 
 	static padData pad_archive[MAX_PADS];
 
+	sysUtilCheckCallback();
+
 	ioPadGetInfo(&padinfo);
 	for(int i = 0; i < MAX_PADS; ++i)
 	{
@@ -430,12 +433,47 @@ Haptic_Feedback(char *name, int effect_volume, int effect_duration,
 {
 }
 
+static void
+IN_xmbEventCallback(uint64_t status, uint64_t param, void *user_data)
+{
+	switch(status)
+	{
+		// Exit game requested
+		case SYSUTIL_EXIT_GAME:
+			Com_Quit();
+			Com_Printf("xdd\n");
+			break;
+		// Beginning of XMB menu drawing
+		case SYSUTIL_DRAW_BEGIN:
+		// End of XMB menu drawing
+		case SYSUTIL_DRAW_END:
+		// XMB menu has been opened
+		case SYSUTIL_MENU_OPEN:
+		// XMB menu has been closed
+		case SYSUTIL_MENU_CLOSE:
+		// On-screen keyboard has been loaded
+		case SYSUTIL_OSK_LOADED:
+		// On-screen keyboard has finished a user entry
+		case SYSUTIL_OSK_DONE:
+		// On-screen keyboard has been unloaded
+		case SYSUTIL_OSK_UNLOADED:
+		// On-screen keyboard has canceled input
+		case SYSUTIL_OSK_INPUT_CANCELED:
+			break;
+		default:
+			Com_Printf("input::%s: unhandled event status (0x%lX)\n", __func__, status);
+			break;
+	}
+}
+
 /*
  * Initializes the backend
  */
 void
 IN_Init(void)
 {
+	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, IN_xmbEventCallback, NULL);
+
 	ioPadInit(7);
 
 	Com_Printf("------- input initialization -------\n");
@@ -487,6 +525,8 @@ void
 IN_Shutdown(void)
 {
 	Cmd_RemoveCommand("force_centerview");
+
+	sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
 
 	Com_Printf("Shutting down input.\n");
 }
