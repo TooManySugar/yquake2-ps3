@@ -205,7 +205,7 @@ CONTENTID	:=	UP0001-$(APPID)_00-0000000000000000
 SFOXML      :=  misc/sfo.xml
 
 # Sufix of [pre]pkg file
-PORT_VERSION := 0.02
+PORT_VERSION := 0.03
 
 #---------------------------------------------------------------------------------
 # options for code generation
