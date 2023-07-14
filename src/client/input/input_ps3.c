@@ -34,9 +34,7 @@
  */
 
 #include <io/pad.h>
-#include <sys/memory.h>
 #include <sysutil/sysutil.h>
-#include <sysutil/osk.h>
 
 #include "header/input.h"
 #include "../../client/header/keyboard.h"
@@ -126,41 +124,8 @@ static cvar_t *joy_axis_triggerright_threshold;
 static cvar_t *joy_haptic_magnitude;
 
 /* ------------------------------------------------------------------ */
-// OSK stuff
-
-static sys_mem_container_t osk_containerid;
-
-#define TEXT_BUFFER_LENGTH 256
-
-// Buffer for OSK title
-static uint16_t osk_message[TEXT_BUFFER_LENGTH];
-
-// Buffer for OSK initial text
-static uint16_t osk_startText[TEXT_BUFFER_LENGTH];
-
-// Buffer for OSK entered text
-static uint16_t osk_outText[TEXT_BUFFER_LENGTH];
-
-oskInputFieldInfo osk_inputFieldInfo;
-oskParam osk_parameters;
-oskCallbackReturnParam osk_outputParam;
 
 /* ------------------------------------------------------------------ */
-
-/* ------------------------------------------------------------------ */
-
-static void
-IN_xmbOpenOSK_f(void)
-{
-	int32_t res;
-
-	res = oskLoadAsync(osk_containerid, &osk_parameters, &osk_inputFieldInfo);
-
-	if (res != 0)
-	{
-		Com_Printf("Error oskLoadAsync: %08x\n", res);
-	}
-}
 
 static inline void
 IN_adjustJoyDirection(const unsigned int rawAxisValue, const char* direction, const float _threshold)
@@ -359,41 +324,15 @@ IN_Update(void)
 		MAP_DS3_TO_QKEY(BTN_SELECT,   K_JOY_BACK);
 		MAP_DS3_TO_QKEY(BTN_START,    K_BTN_START);
 
-		// I want special mapping for buttons in console
-		if (cls.key_dest == key_console)
-		{
-			// map dpad to arrows
-			MAP_DS3_TO_QKEY(BTN_LEFT,     K_LEFTARROW);
-			MAP_DS3_TO_QKEY(BTN_DOWN,     K_DOWNARROW);
-			MAP_DS3_TO_QKEY(BTN_RIGHT,    K_RIGHTARROW);
-			MAP_DS3_TO_QKEY(BTN_UP,       K_UPARROW);
+		MAP_DS3_TO_QKEY(BTN_LEFT,     K_DPAD_LEFT);
+		MAP_DS3_TO_QKEY(BTN_DOWN,     K_DPAD_DOWN);
+		MAP_DS3_TO_QKEY(BTN_RIGHT,    K_DPAD_RIGHT);
+		MAP_DS3_TO_QKEY(BTN_UP,       K_DPAD_UP);
 
-			// square is backspace
-			MAP_DS3_TO_QKEY(BTN_SQUARE,   K_BACKSPACE);
-			// cross is enter (execute command)
-			MAP_DS3_TO_QKEY(BTN_CROSS,    K_ENTER);
-			// circle to special key to quit console
-			MAP_DS3_TO_QKEY(BTN_CIRCLE,   K_CONSOLE);
-
-			// press triangle to open OSK
-			if (pad_archive[i].BTN_TRIANGLE != paddata.BTN_TRIANGLE
-			&& paddata.BTN_TRIANGLE)
-			{
-				IN_xmbOpenOSK_f();
-			}
-		}
-		else
-		{
-			MAP_DS3_TO_QKEY(BTN_LEFT,     K_DPAD_LEFT);
-			MAP_DS3_TO_QKEY(BTN_DOWN,     K_DPAD_DOWN);
-			MAP_DS3_TO_QKEY(BTN_RIGHT,    K_DPAD_RIGHT);
-			MAP_DS3_TO_QKEY(BTN_UP,       K_DPAD_UP);
-
-			MAP_DS3_TO_QKEY(BTN_SQUARE,   K_BTN_X);
-			MAP_DS3_TO_QKEY(BTN_CROSS,    K_BTN_A);
-			MAP_DS3_TO_QKEY(BTN_CIRCLE,   K_BTN_B);
-			MAP_DS3_TO_QKEY(BTN_TRIANGLE, K_SC_E);
-		}
+		MAP_DS3_TO_QKEY(BTN_SQUARE,   K_BTN_X);
+		MAP_DS3_TO_QKEY(BTN_CROSS,    K_BTN_A);
+		MAP_DS3_TO_QKEY(BTN_CIRCLE,   K_BTN_B);
+		MAP_DS3_TO_QKEY(BTN_TRIANGLE, K_BTN_Y);
 
 		MAP_DS3_TO_QKEY(BTN_R1,       K_SHOULDER_RIGHT);
 		MAP_DS3_TO_QKEY(BTN_L1,       K_SHOULDER_LEFT);
@@ -495,39 +434,6 @@ Haptic_Feedback(char *name, int effect_volume, int effect_duration,
 }
 
 static void
-IN_processOSKOutput(const oskCallbackReturnParam *oskOutput)
-{
-	if (oskOutput->res != OSK_OK)
-	{
-		return;
-	}
-
-	// Pass whole message to the game as it was wrote from keyboard
-	uint16_t* str = oskOutput->str;
-	// dont forget message is in UTF-16
-	uint16_t key;
-
-	for(; *str; str++)
-	{
-		key = *str;
-		if (key < 32)
-		{
-			// non-printable ascii? Is it even posible?
-			continue;
-		}
-
-		if (key > 127)
-		{
-			// punishment for not writing ascii only
-			key = '?';
-		}
-
-		Key_Event(key, true, true);
-		Key_Event(key, false, true);
-	}
-}
-
-static void
 IN_xmbEventCallback(uint64_t status, uint64_t param, void *user_data)
 {
 	switch(status)
@@ -545,90 +451,19 @@ IN_xmbEventCallback(uint64_t status, uint64_t param, void *user_data)
 		case SYSUTIL_MENU_OPEN:
 		// XMB menu has been closed
 		case SYSUTIL_MENU_CLOSE:
-			break;
 		// On-screen keyboard has been loaded
 		case SYSUTIL_OSK_LOADED:
-			break;
 		// On-screen keyboard has finished a user entry
 		case SYSUTIL_OSK_DONE:
-			// flush OSK return to output params
-			oskUnloadAsync(&osk_outputParam);
-			IN_processOSKOutput(&osk_outputParam);
-			break;
 		// On-screen keyboard has been unloaded
 		case SYSUTIL_OSK_UNLOADED:
-			// Com_Printf("OSK unloaded\n");
-			break;
 		// On-screen keyboard has canceled input
 		case SYSUTIL_OSK_INPUT_CANCELED:
-			// RSX NOTE: not sure when it happens
-			oskAbort();
 			break;
 		default:
 			Com_Printf("input::%s: unhandled event status (0x%lX)\n", __func__, status);
 			break;
 	}
-}
-
-static void
-IN_utf16FromUtf8(uint16_t *dst, const uint8_t *src)
-{
-	int i;
-	for (i = 0; src[i];)
-	{
-		if ((src[i] & 0xE0) == 0xE0)
-		{
-			*(dst++) = ((src[i] & 0x0F) << 12) | ((src[i + 1] & 0x3F) << 6) | (src[i + 2] & 0x3F);
-			i += 3;
-		}
-		else if ((src[i] & 0xC0) == 0xC0)
-		{
-			*(dst++) = ((src[i] & 0x1F) << 6) | (src[i + 1] & 0x3F);
-			i += 2;
-		}
-		else
-		{
-			*(dst++) = src[i];
-			i += 1;
-		}
-	}
-
-	*dst = '\0';
-}
-
-// Init OSK related stuff
-static void
-IN_initOSK(void)
-{
-	IN_utf16FromUtf8(osk_message, (uint8_t *)"Input text:");
-	IN_utf16FromUtf8(osk_startText, (uint8_t *)"");
-
-	// Configure the title and initial text of the keyboard, and a maximum length
-	osk_inputFieldInfo.message = osk_message;
-	osk_inputFieldInfo.startText = osk_startText;
-	osk_inputFieldInfo.maxLength = TEXT_BUFFER_LENGTH - 1;
-
-	// Configure the type of panel
-	osk_parameters.allowedPanels = OSK_PANEL_TYPE_DEFAULT;
-	osk_parameters.firstViewPanel = OSK_PANEL_TYPE_DEFAULT;
-	osk_parameters.controlPoint = (oskPoint) { 0, 0 };
-	// This will disable entering a new line
-	osk_parameters.prohibitFlags = OSK_PROHIBIT_RETURN;
-
-	// Configure where the osk will write its result
-	osk_outputParam.res = OSK_OK;
-	osk_outputParam.len = TEXT_BUFFER_LENGTH - 1;
-	osk_outputParam.str = osk_outText;
-
-	for (int32_t res = sysMemContainerCreate(&osk_containerid, 4 * 1024 * 1024); res != 0; )
-	{
-		Com_Printf("Error sysMemContainerCreate: %08x\n", res);
-		break;
-	}
-
-	oskSetInitialInputDevice(OSK_DEVICE_PAD);
-	oskSetKeyLayoutOption(OSK_FULLKEY_PANEL);
-	oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
 }
 
 /*
@@ -637,13 +472,11 @@ IN_initOSK(void)
 void
 IN_Init(void)
 {
-	Com_Printf("------- input initialization -------\n");
-
 	sysUtilRegisterCallback(SYSUTIL_EVENT_SLOT0, IN_xmbEventCallback, NULL);
 
 	ioPadInit(7);
 
-	IN_initOSK();
+	Com_Printf("------- input initialization -------\n");
 
 	joystick_yaw = joystick_pitch = joystick_forwardmove = joystick_sidemove = 0;
 
@@ -685,9 +518,6 @@ IN_Init(void)
 	Cmd_AddCommand("+joyaltselector", IN_JoyAltSelectorDown);
 	Cmd_AddCommand("-joyaltselector", IN_JoyAltSelectorUp);
 
-	// funny enough to do so you need to open it first
-	Cmd_AddCommand("openosk", IN_xmbOpenOSK_f);
-
 	Com_Printf("------------------------------------\n\n");
 }
 
@@ -695,9 +525,6 @@ void
 IN_Shutdown(void)
 {
 	Cmd_RemoveCommand("force_centerview");
-	Cmd_RemoveCommand("openosk");
-
-	sysMemContainerDestroy(osk_containerid);
 
 	sysUtilUnregisterCallback(SYSUTIL_EVENT_SLOT0);
 
